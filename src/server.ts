@@ -19,6 +19,7 @@ import subscriptionRoutes from './routes/subscriptions';
 import downloadRoutes from './routes/downloads';
 import paymentRoutes from './routes/payments';
 import analyticsRoutes from './routes/analytics';
+import packageRoutes from './routes/packages';
 
 // Load environment variables
 dotenv.config();
@@ -66,6 +67,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/packages', packageRoutes);
 app.use('/api/downloads', downloadRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/analytics', analyticsRoutes);
