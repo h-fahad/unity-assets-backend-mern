@@ -13,6 +13,9 @@
     "backup": "ts-node scripts/backup-database.ts",
     "restore": "ts-node scripts/restore-database.ts",
     "seed": "ts-node scripts/seed.ts",
+    "seed-plans": "ts-node scripts/seed-plans.ts",
+    "update-prices": "ts-node scripts/update-prices.ts",
+    "test-stripe": "ts-node scripts/test-stripe.ts",
     "create-admin": "node scripts/create-admin.js",
     "migrate-to-s3": "node scripts/migrate-to-s3.js"
   },

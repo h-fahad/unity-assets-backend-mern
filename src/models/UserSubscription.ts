@@ -24,10 +24,34 @@ const userSubscriptionSchema = new Schema<IUserSubscription>({
     type: Boolean,
     default: true
   },
+  // Stripe integration fields
   stripeSubscriptionId: {
     type: String,
     unique: true,
     sparse: true
+  },
+  stripeCustomerId: {
+    type: String,
+    trim: true
+  },
+  stripePriceId: {
+    type: String,
+    trim: true
+  },
+  stripeStatus: {
+    type: String,
+    enum: ['active', 'canceled', 'incomplete', 'incomplete_expired', 'past_due', 'trialing', 'unpaid'],
+    default: 'incomplete'
+  },
+  cancelAtPeriodEnd: {
+    type: Boolean,
+    default: false
+  },
+  currentPeriodStart: {
+    type: Date
+  },
+  currentPeriodEnd: {
+    type: Date
   }
 }, {
   timestamps: true,

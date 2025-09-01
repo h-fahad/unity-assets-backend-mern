@@ -7,6 +7,7 @@ import { UserSubscription } from '../models/UserSubscription';
 import { Activity } from '../models/Activity';
 import { Role, ActivityType } from '../types';
 import { asyncHandler } from '../middleware/error';
+import { downloadService } from '../services/downloadService';
 
 const router = Router();
 
@@ -53,18 +54,31 @@ router.post('/:assetId', protect, asyncHandler(async (req: any, res) => {
     });
   }
   
-  // Admin users can download anything without restrictions
-  if (user.role === Role.ADMIN) {
-    // Create download record
-    const download = new Download({
-      userId: user._id,
-      assetId: assetId,
-      downloadedAt: new Date(),
-      ipAddress: req.ip || req.connection.remoteAddress,
-      userAgent: req.get('User-Agent')
-    });
+  try {
+    // Use downloadService to check permissions and record download
+    const downloadCheck = await downloadService.canUserDownloadWithAdminBypass(user._id);
     
-    await download.save();
+    if (!downloadCheck.canDownload) {
+      const statusCode = downloadCheck.isAdmin ? 500 : (downloadCheck.reason?.includes('limit') ? 429 : 403);
+      return res.status(statusCode).json({
+        success: false,
+        message: downloadCheck.reason || 'Download not allowed',
+        data: {
+          isAdmin: downloadCheck.isAdmin,
+          dailyDownloads: downloadCheck.dailyDownloads,
+          dailyLimit: downloadCheck.dailyLimit,
+          subscription: downloadCheck.subscription
+        }
+      });
+    }
+
+    // Record the download
+    await downloadService.recordDownload(
+      user._id,
+      assetId,
+      req.ip || req.connection.remoteAddress,
+      req.get('User-Agent')
+    );
     
     // Update asset download count
     await Asset.findByIdAndUpdate(assetId, {
@@ -74,17 +88,24 @@ router.post('/:assetId', protect, asyncHandler(async (req: any, res) => {
     // Log activity
     await Activity.create({
       type: ActivityType.ASSET_DOWNLOADED,
-      message: `Admin ${user.email} downloaded asset: ${asset.name}`,
+      message: `${downloadCheck.isAdmin ? 'Admin' : 'User'} ${user.email} downloaded asset: ${asset.name}`,
       userId: user._id,
       assetId: assetId,
       metadata: {
         assetName: asset.name,
         userRole: user.role,
-        adminDownload: true
+        isAdminDownload: downloadCheck.isAdmin,
+        subscriptionPlan: downloadCheck.subscription?.planName,
+        dailyDownloadsUsed: downloadCheck.dailyDownloads + 1,
+        dailyDownloadLimit: downloadCheck.dailyLimit
       }
     });
     
-    return res.json({
+    const remainingDownloads = downloadCheck.isAdmin 
+      ? 'unlimited' 
+      : Math.max(0, downloadCheck.dailyLimit - downloadCheck.dailyDownloads - 1);
+
+    res.json({
       success: true,
       data: {
         downloadUrl: asset.fileUrl,
@@ -94,89 +115,21 @@ router.post('/:assetId', protect, asyncHandler(async (req: any, res) => {
           description: asset.description,
           thumbnail: asset.thumbnail
         },
-        message: 'Admin download successful'
+        remainingDownloads,
+        downloadLimit: downloadCheck.dailyLimit,
+        isAdmin: downloadCheck.isAdmin,
+        message: `Download successful${downloadCheck.isAdmin ? ' (admin)' : ''}`
       }
     });
-  }
-  
-  // For regular users, check subscription and download limits
-  // Check if user has active subscription
-  const activeSubscription = await UserSubscription.findOne({
-    userId: user._id,
-    isActive: true,
-    startDate: { $lte: new Date() },
-    endDate: { $gte: new Date() }
-  }).populate('planId');
-  
-  if (!activeSubscription) {
-    return res.status(403).json({
+
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({
       success: false,
-      message: 'Active subscription required to download assets'
+      message: 'Failed to process download',
+      error: process.env.NODE_ENV === 'development' ? (error as Error).message : 'Internal server error'
     });
   }
-  
-  // Check daily download limit
-  const today = new Date();
-  const dailyDownloads = await Download.getDailyDownloadCount(user._id, today);
-  const downloadLimit = activeSubscription.planId.dailyDownloadLimit;
-  
-  if (dailyDownloads >= downloadLimit) {
-    return res.status(429).json({
-      success: false,
-      message: `Daily download limit of ${downloadLimit} reached. Please try again tomorrow.`,
-      data: {
-        dailyDownloads,
-        downloadLimit,
-        resetsAt: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
-      }
-    });
-  }
-  
-  // User has valid subscription and downloads remaining - proceed with download
-  const download = new Download({
-    userId: user._id,
-    assetId: assetId,
-    downloadedAt: new Date(),
-    ipAddress: req.ip || req.connection.remoteAddress,
-    userAgent: req.get('User-Agent')
-  });
-  
-  await download.save();
-  
-  // Update asset download count
-  await Asset.findByIdAndUpdate(assetId, {
-    $inc: { downloadCount: 1 }
-  });
-  
-  // Log activity
-  await Activity.create({
-    type: ActivityType.ASSET_DOWNLOADED,
-    message: `User ${user.email} downloaded asset: ${asset.name}`,
-    userId: user._id,
-    assetId: assetId,
-    metadata: {
-      assetName: asset.name,
-      subscriptionPlan: activeSubscription.planId.name,
-      dailyDownloadsUsed: dailyDownloads + 1,
-      dailyDownloadLimit: downloadLimit
-    }
-  });
-  
-  res.json({
-    success: true,
-    data: {
-      downloadUrl: asset.fileUrl,
-      asset: {
-        _id: asset._id,
-        name: asset.name,
-        description: asset.description,
-        thumbnail: asset.thumbnail
-      },
-      remainingDownloads: downloadLimit - (dailyDownloads + 1),
-      downloadLimit,
-      message: 'Download successful'
-    }
-  });
 }));
 
 // Get download stats (Admin only)
@@ -257,60 +210,40 @@ router.get('/stats', protect, adminOnly, asyncHandler(async (req: any, res) => {
 router.get('/status', protect, asyncHandler(async (req: any, res) => {
   const user = req.user;
   
-  // Admin users have unlimited access
-  if (user.role === Role.ADMIN) {
-    return res.json({
+  try {
+    // Use downloadService to get comprehensive status
+    const downloadStatus = await downloadService.canUserDownloadWithAdminBypass(user._id);
+    
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+
+    res.json({
       success: true,
       data: {
-        canDownload: true,
-        isAdmin: true,
-        remainingDownloads: 'unlimited',
-        message: 'Admin user - unlimited downloads'
+        canDownload: downloadStatus.canDownload,
+        isAdmin: downloadStatus.isAdmin,
+        hasSubscription: !!downloadStatus.subscription,
+        dailyDownloads: downloadStatus.dailyDownloads,
+        downloadLimit: downloadStatus.dailyLimit,
+        remainingDownloads: downloadStatus.isAdmin 
+          ? 'unlimited' 
+          : Math.max(0, downloadStatus.dailyLimit - downloadStatus.dailyDownloads),
+        subscription: downloadStatus.subscription,
+        resetsAt: tomorrow,
+        message: downloadStatus.reason || (downloadStatus.isAdmin ? 'Admin user - unlimited downloads' : 'Ready to download')
       }
     });
-  }
-  
-  // Check user subscription
-  const activeSubscription = await UserSubscription.findOne({
-    userId: user._id,
-    isActive: true,
-    startDate: { $lte: new Date() },
-    endDate: { $gte: new Date() }
-  }).populate('planId');
-  
-  if (!activeSubscription) {
-    return res.json({
-      success: true,
-      data: {
-        canDownload: false,
-        hasSubscription: false,
-        remainingDownloads: 0,
-        message: 'No active subscription found'
-      }
+
+  } catch (error) {
+    console.error('Error getting download status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get download status',
+      error: process.env.NODE_ENV === 'development' ? (error as Error).message : 'Internal server error'
     });
   }
-  
-  // Check daily downloads
-  const today = new Date();
-  const dailyDownloads = await Download.getDailyDownloadCount(user._id, today);
-  const downloadLimit = activeSubscription.planId.dailyDownloadLimit;
-  const remainingDownloads = Math.max(0, downloadLimit - dailyDownloads);
-  
-  res.json({
-    success: true,
-    data: {
-      canDownload: remainingDownloads > 0,
-      hasSubscription: true,
-      dailyDownloads,
-      downloadLimit,
-      remainingDownloads,
-      subscription: {
-        planName: activeSubscription.planId.name,
-        endDate: activeSubscription.endDate
-      },
-      resetsAt: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
-    }
-  });
 }));
 
 export default router;

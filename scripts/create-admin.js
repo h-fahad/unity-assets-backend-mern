@@ -24,9 +24,9 @@ async function createAdminUser() {
     
     // Admin user details
     const adminData = {
-      name: 'Admin User',
-      email: 'admin@example.com',
-      password: 'admin123',
+      name: 'Unity Assets Admin',
+      email: 'admin@unityassets.com',
+      password: 'Anas&FahadUnit',
       role: 'ADMIN',
       isActive: true
     };
@@ -44,13 +44,13 @@ async function createAdminUser() {
     const adminUser = await User.create(adminData);
     console.log('✅ Admin user created successfully!');
     console.log('📧 Email:', adminUser.email);
-    console.log('🔑 Password:', 'admin123');
+    console.log('🔑 Password:', 'Anas&FahadUnit');
     console.log('👑 Role:', adminUser.role);
     console.log('🆔 User ID:', adminUser._id);
     
     console.log('\n🎯 You can now login with:');
-    console.log('   Email: admin@example.com');
-    console.log('   Password: admin123');
+    console.log('   Email: admin@unityassets.com');
+    console.log('   Password: Anas&FahadUnit');
     
   } catch (error) {
     console.error('❌ Error creating admin user:', error.message);

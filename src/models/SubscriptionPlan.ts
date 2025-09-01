@@ -41,6 +41,21 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>({
   isActive: {
     type: Boolean,
     default: true
+  },
+  // Stripe integration
+  stripeProductId: {
+    type: String,
+    trim: true
+  },
+  stripePriceIds: {
+    monthly: {
+      type: String,
+      trim: true
+    },
+    yearly: {
+      type: String,
+      trim: true
+    }
   }
 }, {
   timestamps: true,

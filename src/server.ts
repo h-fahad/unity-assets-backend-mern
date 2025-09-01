@@ -50,6 +50,9 @@ app.use(cors({
 // Logging
 app.use(morgan('combined'));
 
+// Stripe webhook route MUST be before body parsing middleware
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }), paymentRoutes);
+
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));

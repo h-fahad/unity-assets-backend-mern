@@ -57,8 +57,17 @@ export interface ISubscriptionPlan extends Document {
   dailyDownloadLimit: number;
   features: string[];
   isActive: boolean;
+  // Stripe integration
+  stripeProductId?: string;
+  stripePriceIds?: {
+    monthly?: string;
+    yearly?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
+  // Virtual properties
+  yearlyPrice: number;
+  monthlyPrice: number;
 }
 
 export interface IUserSubscription extends Document {
@@ -67,7 +76,14 @@ export interface IUserSubscription extends Document {
   startDate: Date;
   endDate: Date;
   isActive: boolean;
+  // Stripe integration
   stripeSubscriptionId?: string;
+  stripeCustomerId?: string;
+  stripePriceId?: string;
+  stripeStatus?: string; // active, canceled, incomplete, etc.
+  cancelAtPeriodEnd?: boolean;
+  currentPeriodStart?: Date;
+  currentPeriodEnd?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
