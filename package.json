@@ -4,7 +4,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "echo 'Build completed - using simple server'",
-    "start": "node server-minimal.js",
+    "start": "node src/complete-server.js",
     "start:ts": "node dist/server.js",
     "build:ts": "tsc",
     "dev": "node src/complete-server.js",
