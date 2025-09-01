@@ -408,6 +408,53 @@ app.get('/api/health', (req, res) => {
 
 // ==================== AUTH ROUTES ====================
 
+// Emergency admin creation endpoint (use once then remove)
+app.post('/api/admin/create-emergency-admin', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(500).json({
+        success: false,
+        message: 'Database not connected'
+      });
+    }
+
+    // Check if any admin exists
+    const existingAdmin = await User.findOne({ role: 'ADMIN' });
+    if (existingAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin user already exists'
+      });
+    }
+
+    // Create admin user
+    const adminUser = await User.create({
+      name: 'Admin User',
+      email: 'admin@example.com',
+      password: 'admin123',
+      role: 'ADMIN',
+      isActive: true
+    });
+
+    res.json({
+      success: true,
+      message: 'Emergency admin created successfully',
+      data: {
+        email: 'admin@example.com',
+        password: 'admin123',
+        note: 'Please change password after login'
+      }
+    });
+  } catch (error) {
+    console.error('Error creating emergency admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create admin',
+      error: error.message
+    });
+  }
+});
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;
