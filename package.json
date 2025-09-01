@@ -1,0 +1,59 @@
+{
+  "name": "unity-assets-mern-backend",
+  "version": "1.0.0",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "node src/complete-server.js",
+    "start:dev": "node src/complete-server.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "backup": "ts-node scripts/backup-database.ts",
+    "restore": "ts-node scripts/restore-database.ts",
+    "seed": "ts-node scripts/seed.ts",
+    "migrate-to-s3": "node scripts/migrate-to-s3.js"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "typescript",
+    "unity",
+    "assets"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "Unity Assets Marketplace - MERN Backend",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.864.0",
+    "@aws-sdk/s3-request-presigner": "^3.864.0",
+    "bcryptjs": "^3.0.2",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.17.1",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "multer-s3": "^3.0.1",
+    "nodemailer": "^7.0.5",
+    "stripe": "^18.4.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.0.0",
+    "@types/multer-s3": "^3.0.3",
+    "@types/node": "^24.3.0",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
