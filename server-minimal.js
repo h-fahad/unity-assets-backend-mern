@@ -68,7 +68,7 @@ app.get('/api/cors-test', function(req, res) {
 });
 
 // Preflight OPTIONS handler for all routes
-app.options('*', function(req, res) {
+app.options(/.*/, function(req, res) {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
