@@ -401,7 +401,11 @@ app.get('/api/health', (req, res) => {
       'GET /api/categories',
       'GET /api/categories/active',
       'GET /api/subscriptions/plans',
-      'GET /api/subscriptions/admin/stats'
+      'GET /api/subscriptions/admin/stats',
+      'POST /api/payments/create-checkout-session',
+      'POST /api/payments/create-subscription-manual',
+      'POST /api/payments/webhook',
+      'GET /api/payments/subscription-status'
     ]
   });
 });
@@ -2024,6 +2028,205 @@ app.get('/api/subscriptions/admin/stats', async (req, res) => {
   }
 });
 
+// ==================== PAYMENT ROUTES ====================
+
+// Initialize Stripe
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+// Map plan IDs to Stripe Price IDs
+const getStripePriceId = (planId, billingCycle) => {
+  const priceMap = {
+    '507f1f77bcf86cd799439031': { // Basic
+      MONTHLY: process.env.STRIPE_PRICE_BASIC_MONTHLY,
+      YEARLY: process.env.STRIPE_PRICE_BASIC_YEARLY
+    },
+    '507f1f77bcf86cd799439032': { // Pro
+      MONTHLY: process.env.STRIPE_PRICE_PRO_MONTHLY,
+      YEARLY: process.env.STRIPE_PRICE_PRO_YEARLY
+    },
+    '507f1f77bcf86cd799439033': { // Enterprise
+      MONTHLY: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
+      YEARLY: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY
+    }
+  };
+  
+  return priceMap[planId]?.[billingCycle];
+};
+
+// Create Stripe checkout session for subscription
+app.post('/api/payments/create-checkout-session', async (req, res) => {
+  console.log('=== PAYMENT ROUTE CALLED ===');
+  console.log('Request body:', req.body);
+  
+  try {
+    const { planId, billingCycle } = req.body;
+
+    if (!planId || !billingCycle) {
+      return res.status(400).json({
+        success: false,
+        message: 'Plan ID and billing cycle are required'
+      });
+    }
+
+    // Get Stripe Price ID
+    const stripePriceId = getStripePriceId(planId, billingCycle);
+    console.log(`Plan ID: ${planId}, Billing Cycle: ${billingCycle}, Stripe Price ID: ${stripePriceId}`);
+    
+    if (!stripePriceId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plan or billing cycle'
+      });
+    }
+
+    const frontendUrl = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    // Create Stripe checkout session
+    console.log('Creating Stripe checkout session...');
+    console.log('Stripe Secret Key:', process.env.STRIPE_SECRET_KEY ? 'Set' : 'Not set');
+    
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [{
+          price: stripePriceId,
+          quantity: 1,
+        }],
+        success_url: `${frontendUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/packages`,
+        metadata: {
+          planId: planId,
+          billingCycle: billingCycle
+        }
+      });
+
+      console.log('Stripe session created successfully:', session.id);
+      
+      res.json({
+        success: true,
+        data: {
+          sessionId: session.id,
+          url: session.url
+        }
+      });
+    } catch (stripeError) {
+      console.error('Stripe error:', stripeError);
+      
+      // If Stripe fails, return error instead of fake session
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create payment session',
+        error: stripeError.message
+      });
+    }
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create checkout session',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Create manual subscription for testing
+app.post('/api/payments/create-subscription-manual', async (req, res) => {
+  try {
+    const { planId, billingCycle = 'MONTHLY' } = req.body;
+
+    if (!planId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Plan ID is required'
+      });
+    }
+
+    // For demo purposes, simulate creating a subscription
+    const mockSubscription = {
+      id: `sub_${Date.now()}`,
+      planId,
+      billingCycle,
+      status: 'active',
+      startDate: new Date(),
+      endDate: new Date(Date.now() + (billingCycle === 'YEARLY' ? 365 : 30) * 24 * 60 * 60 * 1000)
+    };
+
+    res.json({
+      success: true,
+      message: 'Manual subscription created successfully (demo)',
+      data: {
+        subscription: mockSubscription
+      }
+    });
+  } catch (error) {
+    console.error('Error creating manual subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create manual subscription',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Stripe webhook handler (must be before body parsing middleware)
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log(`Received Stripe webhook: ${event.type}`);
+
+  // Handle the event
+  switch (event.type) {
+    case 'checkout.session.completed':
+      const session = event.data.object;
+      console.log('Payment successful:', session.id);
+      
+      // Here you would typically:
+      // 1. Get user info from session metadata or customer
+      // 2. Update user's subscription status in database
+      // 3. Send confirmation email
+      
+      console.log('Session metadata:', session.metadata);
+      break;
+      
+    case 'invoice.payment_succeeded':
+      const invoice = event.data.object;
+      console.log('Subscription payment succeeded:', invoice.id);
+      break;
+      
+    case 'customer.subscription.deleted':
+      const subscription = event.data.object;
+      console.log('Subscription cancelled:', subscription.id);
+      break;
+      
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  res.json({ received: true });
+});
+
+// Get subscription status
+app.get('/api/payments/subscription-status', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      hasActiveSubscription: false,
+      subscription: null
+    }
+  });
+});
+
 // ==================== DOWNLOAD ROUTES ====================
 
 app.post('/api/downloads/:assetId', async (req, res) => {
@@ -2130,6 +2333,10 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/categories/active   - Get active categories`);
   console.log(`   GET  /api/subscriptions/plans - Get subscription plans`);
   console.log(`   GET  /api/subscriptions/admin/stats - Get admin stats`);
+  console.log(`   POST /api/payments/create-checkout-session - Create payment session`);
+  console.log(`   POST /api/payments/create-subscription-manual - Create manual subscription`);
+  console.log(`   POST /api/payments/webhook - Stripe webhook handler`);
+  console.log(`   GET  /api/payments/subscription-status - Get subscription status`);
   console.log(`   POST /api/downloads/:assetId  - Download asset`);
   console.log('');
   console.log('🔗 Test with: curl http://localhost:3001/api/health');

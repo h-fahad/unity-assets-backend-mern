@@ -10,30 +10,7 @@ import { body, validationResult } from 'express-validator';
 
 const router = Router();
 
-// Webhook route - raw body parsing handled by server.ts
-router.post('/webhook', async (req: Request, res: Response) => {
-  try {
-    const signature = req.headers['stripe-signature'] as string;
-    
-    if (!signature) {
-      console.error('No stripe-signature header found');
-      return res.status(400).send('Missing stripe-signature header');
-    }
-
-    // Verify webhook signature and construct event
-    const event = stripeService.verifyWebhookSignature(req.body, signature);
-    
-    console.log(`📨 Received webhook: ${event.type}`);
-    
-    // Process the webhook event
-    await webhookService.handleWebhookEvent(event);
-    
-    res.json({ received: true });
-  } catch (error: any) {
-    console.error('Webhook error:', error.message);
-    res.status(400).send(`Webhook error: ${error.message}`);
-  }
-});
+// Webhook route is handled directly in server.ts for proper raw body parsing
 
 // Protected routes
 router.post('/create-checkout-session', 

@@ -51,8 +51,34 @@ app.use(cors({
 // Logging
 app.use(morgan('combined'));
 
-// Stripe webhook route MUST be before body parsing middleware
-app.use('/api/payments/webhook', express.raw({ type: 'application/json' }), paymentRoutes);
+// Stripe webhook route MUST be before JSON body parsing
+// This route needs raw body for signature verification
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const signature = req.headers['stripe-signature'] as string;
+    
+    if (!signature) {
+      console.error('No stripe-signature header found');
+      return res.status(400).send('Missing stripe-signature header');
+    }
+
+    const { stripeService } = await import('./services/stripeService');
+    const { webhookService } = await import('./services/webhookService');
+
+    // Verify webhook signature and construct event
+    const event = stripeService.verifyWebhookSignature(req.body, signature);
+    
+    console.log(`📨 Received webhook: ${event.type}`);
+    
+    // Process the webhook event
+    await webhookService.handleWebhookEvent(event);
+    
+    res.json({ received: true });
+  } catch (error: any) {
+    console.error('Webhook error:', error.message);
+    res.status(400).send(`Webhook error: ${error.message}`);
+  }
+});
 
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));
