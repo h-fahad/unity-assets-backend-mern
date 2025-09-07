@@ -1,8 +1,8 @@
 {
   "watch": ["src"],
-  "ext": "ts,json",
+  "ext": "js,ts,json",
   "ignore": ["src/**/*.spec.ts"],
-  "exec": "ts-node src/server-with-mongo.ts",
+  "exec": "node src/complete-server.js",
   "env": {
     "NODE_ENV": "development"
   }

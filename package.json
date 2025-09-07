@@ -7,7 +7,7 @@
     "start": "node src/complete-server.js",
     "start:ts": "node dist/server.js",
     "build:ts": "tsc",
-    "dev": "node src/complete-server.js",
+    "dev": "nodemon src/complete-server.js",
     "start:dev": "node src/complete-server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "backup": "ts-node scripts/backup-database.ts",

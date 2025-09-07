@@ -2144,7 +2144,20 @@ app.get('/api/subscriptions/admin/stats', async (req, res) => {
         .populate('userId', 'name');
 
       totalDownloads = totalDownloadCount;
-      activeSubscriptions = 0; // Will be real when subscription model is implemented
+      
+      // Count active subscriptions (exclude admin users)
+      const usersWithActiveSubscriptions = await UserSubscription.distinct('userId', {
+        isActive: true,
+        endDate: { $gte: new Date() }
+      });
+      
+      // Filter out admin users from the subscription count
+      const nonAdminUsersWithSubscriptions = await User.countDocuments({
+        _id: { $in: usersWithActiveSubscriptions },
+        role: { $ne: 'ADMIN' } // Exclude admins
+      });
+      
+      activeSubscriptions = nonAdminUsersWithSubscriptions;
       
       // Build recent activity from real data
       recentActivity = [];
@@ -2648,6 +2661,7 @@ app.listen(PORT, () => {
   console.log('');
   console.log('🔗 Test with: curl http://localhost:3001/api/health');
   console.log('🔗 Featured assets: curl http://localhost:3001/api/assets/featured');
+  console.log('✨ Auto-restart with nodemon is working!');
   console.log('');
   if (mongoose.connection.readyState !== 1) {
     console.log('⚠️  Running in demo mode (MongoDB not connected)');
