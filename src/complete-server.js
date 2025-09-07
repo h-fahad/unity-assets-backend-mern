@@ -2554,8 +2554,27 @@ app.post('/api/downloads/:assetId', async (req, res) => {
     // For demo purposes, we'll accept any user ID from headers or use 'anonymous'
     const userId = req.headers['user-id'] || 'anonymous';
     
-    // Check if asset exists (in sample data for now)
-    const asset = sampleAssets.find(a => a._id === assetId);
+    // Check if asset exists (try database first, then sample data)
+    let asset = null;
+    
+    // Try to find in database first
+    if (mongoose.connection.readyState === 1) {
+      try {
+        asset = await Asset.findById(assetId);
+      } catch (error) {
+        console.log('Asset not found in database, checking sample data...');
+      }
+    }
+    
+    // If not found in database, check sample data with both _id and id
+    if (!asset) {
+      asset = sampleAssets.find(a => 
+        a._id === assetId || 
+        a.id === assetId ||
+        a._id?.toString() === assetId ||
+        a.id?.toString() === assetId
+      );
+    }
 
     if (!asset) {
       return res.status(404).json({
@@ -2581,7 +2600,14 @@ app.post('/api/downloads/:assetId', async (req, res) => {
       message: 'Download started',
       data: {
         downloadUrl: asset.fileUrl,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minutes
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 minutes
+        asset: {
+          id: asset._id || asset.id,
+          name: asset.name,
+          description: asset.description,
+          thumbnail: asset.thumbnail,
+          category: asset.category
+        }
       }
     });
   } catch (error) {
@@ -2590,6 +2616,38 @@ app.post('/api/downloads/:assetId', async (req, res) => {
       success: false,
       message: 'Download failed',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// Get download status/limits for current user
+app.get('/api/downloads/status', async (req, res) => {
+  try {
+    const userId = req.headers['user-id'] || 'anonymous';
+    
+    // For demo purposes, we'll simulate user subscription status
+    // In real app, this would check actual user subscription from database
+    const mockUserStatus = {
+      isAdmin: userId === 'admin',
+      hasSubscription: true, // Default to true for demo
+      canDownload: true,
+      remainingDownloads: 'unlimited', // or specific number
+      message: 'Ready to download',
+      subscription: {
+        planName: 'Basic Plan',
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
+      }
+    };
+    
+    res.json({
+      success: true,
+      data: mockUserStatus
+    });
+  } catch (error) {
+    console.error('Error getting download status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get download status'
     });
   }
 });
