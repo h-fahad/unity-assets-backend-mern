@@ -8,13 +8,23 @@ export interface AuthRequest extends Request {
   user?: any;
 }
 
-// Generate JWT Token
+// Generate JWT Access Token
 export const generateToken = (userId: string): string => {
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is not set');
   }
   return jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d'
+    expiresIn: '15m' // Short-lived access token
+  });
+};
+
+// Generate JWT Refresh Token
+export const generateRefreshToken = (userId: string): string => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is not set');
+  }
+  return jwt.sign({ userId, type: 'refresh' }, process.env.JWT_SECRET, {
+    expiresIn: '30d' // Long-lived refresh token
   });
 };
 

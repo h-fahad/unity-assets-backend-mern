@@ -54,7 +54,7 @@ export const validateUserLogin = [
   handleValidationErrors
 ];
 
-export const validatePasswordReset = [
+export const validatePasswordResetRequest = [
   body('email')
     .isEmail()
     .normalizeEmail()
@@ -69,6 +69,62 @@ export const validatePasswordResetConfirm = [
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long'),
+  handleValidationErrors
+];
+
+// Enhanced validation rules for new auth features
+export const validateRegister = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email'),
+  body('password')
+    .isLength({ min: 8 })
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage('Password must contain at least 8 characters with uppercase, lowercase, number and special character'),
+  body('name')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Name must be between 1 and 50 characters'),
+  handleValidationErrors
+];
+
+export const validateLogin = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email'),
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required'),
+  handleValidationErrors
+];
+
+export const validatePasswordReset = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email'),
+  body('otp')
+    .isLength({ min: 6, max: 6 })
+    .isNumeric()
+    .withMessage('OTP must be a 6-digit number'),
+  body('newPassword')
+    .isLength({ min: 8 })
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage('Password must contain at least 8 characters with uppercase, lowercase, number and special character'),
+  handleValidationErrors
+];
+
+export const validateChangePassword = [
+  body('currentPassword')
+    .notEmpty()
+    .withMessage('Current password is required'),
+  body('newPassword')
+    .isLength({ min: 8 })
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage('Password must contain at least 8 characters with uppercase, lowercase, number and special character'),
   handleValidationErrors
 ];
 

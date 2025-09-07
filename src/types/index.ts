@@ -29,14 +29,40 @@ export interface IUser extends Document {
   password: string;
   role: Role;
   isActive: boolean;
-  resetToken?: string;
-  resetTokenExpiry?: Date;
+  isEmailVerified: boolean;
+  emailVerificationToken?: string;
+  emailVerificationExpiry?: Date;
+  resetPasswordToken?: string;
+  resetPasswordExpiry?: Date;
+  resetPasswordOTP?: string;
+  resetPasswordOTPExpiry?: Date;
+  loginAttempts: number;
+  lockUntil?: Date;
+  lastLogin?: Date;
+  twoFactorSecret?: string;
+  twoFactorEnabled: boolean;
+  refreshTokens: Array<{
+    token: string;
+    createdAt: Date;
+    expiresAt: Date;
+    deviceInfo: string;
+  }>;
   createdAt: Date;
   updatedAt: Date;
   
+  // Virtual properties
+  isLocked: boolean;
+  
   // Instance methods
   comparePassword(candidatePassword: string): Promise<boolean>;
-  generateResetToken(): string;
+  generateEmailVerificationToken(): string;
+  generatePasswordResetToken(): string;
+  generatePasswordResetOTP(): string;
+  incrementLoginAttempts(): Promise<any>;
+  resetLoginAttempts(): Promise<any>;
+  addRefreshToken(token: string, deviceInfo?: string): void;
+  removeRefreshToken(token: string): void;
+  clearAllRefreshTokens(): void;
 }
 
 export interface ICategory extends Document {

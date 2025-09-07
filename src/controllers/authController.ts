@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { User } from '../models/User';
 import { Activity } from '../models/Activity';
-import { generateToken } from '../middleware/auth';
+import { generateToken, generateRefreshToken } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/error';
 import { ActivityType } from '../types';
 
@@ -49,11 +51,11 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
   });
 
   // Log user registration activity
-  await Activity.logActivity(
-    ActivityType.USER_REGISTERED,
-    `New user registered: ${email}`,
-    user._id.toString()
-  );
+  await Activity.create({
+    type: ActivityType.USER_REGISTERED,
+    message: `New user registered: ${email}`,
+    userId: user._id.toString()
+  });
 
   // Generate token
   const token = generateToken(user._id.toString());
@@ -138,7 +140,7 @@ export const requestPasswordReset = asyncHandler(async (req: Request, res: Respo
   }
 
   // Generate reset token
-  const resetToken = user.generateResetToken();
+  const resetToken = user.generatePasswordResetToken();
   await user.save();
 
   // In a real application, you would send this token via email
@@ -156,10 +158,12 @@ export const requestPasswordReset = asyncHandler(async (req: Request, res: Respo
 export const resetPassword = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email, resetToken, newPassword }: ResetPasswordDto = req.body;
 
+  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  
   const user = await User.findOne({
     email,
-    resetToken,
-    resetTokenExpiry: { $gt: new Date() }
+    resetPasswordToken: hashedToken,
+    resetPasswordExpiry: { $gt: new Date() }
   });
 
   if (!user) {
@@ -168,8 +172,8 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response, ne
 
   // Update password (will be hashed by pre-save middleware)
   user.password = newPassword;
-  user.resetToken = undefined;
-  user.resetTokenExpiry = undefined;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpiry = undefined;
   await user.save();
 
   res.json({
