@@ -6,12 +6,14 @@ const mongoose = require('mongoose');
 const multer = require('multer');
 const multerS3 = require('multer-s3');
 const { S3Client } = require('@aws-sdk/client-s3');
+const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 // MongoDB connection
 const connectDB = async () => {
@@ -463,17 +465,18 @@ app.post('/api/auth/register', async (req, res) => {
         message: 'User registered successfully',
         data: {
           user: userObj,
-          access_token: 'jwt-token-placeholder'
+          access_token: jwt.sign({ userId: user._id.toString() }, JWT_SECRET, { expiresIn: '24h' })
         }
       });
     } else {
       // Demo mode without database
+      const demoUserId = Date.now().toString();
       res.status(201).json({
         success: true,
         message: 'User registered successfully (demo mode)',
         data: {
           user: {
-            _id: Date.now().toString(),
+            _id: demoUserId,
             name,
             email,
             role: 'USER',
@@ -481,7 +484,7 @@ app.post('/api/auth/register', async (req, res) => {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           },
-          access_token: 'jwt-token-placeholder'
+          access_token: jwt.sign({ userId: demoUserId }, JWT_SECRET, { expiresIn: '24h' })
         }
       });
     }
@@ -523,7 +526,7 @@ app.post('/api/auth/login', async (req, res) => {
         message: 'Login successful',
         data: {
           user: userObj,
-          access_token: 'jwt-token-placeholder'
+          access_token: jwt.sign({ userId: user._id.toString() }, JWT_SECRET, { expiresIn: '24h' })
         }
       });
     } else {
@@ -541,7 +544,7 @@ app.post('/api/auth/login', async (req, res) => {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           },
-          access_token: 'jwt-token-placeholder'
+          access_token: jwt.sign({ userId: '507f1f77bcf86cd799439061' }, JWT_SECRET, { expiresIn: '24h' })
         }
       });
     }
@@ -559,35 +562,34 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/users/profile', async (req, res) => {
   try {
-    if (mongoose.connection.readyState === 1) {
-      const user = await User.findOne().select('-password');
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-      res.json({
-        success: true,
-        data: { user }
-      });
-    } else {
-      // Demo mode
-      res.json({
-        success: true,
-        data: {
-          user: {
-            _id: '507f1f77bcf86cd799439061',
-            name: 'Demo User',
-            email: 'demo@example.com',
-            role: 'USER',
-            isActive: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }
-        }
+    const userId = req.headers['user-id'] || extractUserIdFromToken(req.headers['authorization']);
+    
+    if (!userId || userId === 'public' || userId === 'anonymous') {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
       });
     }
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not available'
+      });
+    }
+
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+      
+    res.json({
+      success: true,
+      data: { user }
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -2550,32 +2552,24 @@ app.get('/api/payments/subscription-status', (req, res) => {
 app.post('/api/downloads/:assetId', async (req, res) => {
   try {
     const assetId = req.params.assetId;
+    const userId = req.headers['user-id'] || extractUserIdFromToken(req.headers['authorization']);
     
-    // For demo purposes, we'll accept any user ID from headers or use 'anonymous'
-    const userId = req.headers['user-id'] || 'anonymous';
-    
-    // Check if asset exists (try database first, then sample data)
-    let asset = null;
-    
-    // Try to find in database first
-    if (mongoose.connection.readyState === 1) {
-      try {
-        asset = await Asset.findById(assetId);
-      } catch (error) {
-        console.log('Asset not found in database, checking sample data...');
-      }
+    if (!userId || userId === 'anonymous' || userId === 'public') {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
     }
     
-    // If not found in database, check sample data with both _id and id
-    if (!asset) {
-      asset = sampleAssets.find(a => 
-        a._id === assetId || 
-        a.id === assetId ||
-        a._id?.toString() === assetId ||
-        a.id?.toString() === assetId
-      );
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not available'
+      });
     }
 
+    // Find asset in database only
+    const asset = await Asset.findById(assetId);
     if (!asset) {
       return res.status(404).json({
         success: false,
@@ -2583,18 +2577,64 @@ app.post('/api/downloads/:assetId', async (req, res) => {
       });
     }
 
-    if (mongoose.connection.readyState === 1) {
-      // Record the download in the database
-      await Download.create({
-        userId: userId,
-        assetId: assetId,
-        downloadedAt: new Date()
+    // Get user and check permissions
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
       });
-      
-      console.log(`📥 Download recorded: ${asset.name} by user ${userId}`);
     }
 
-    // In real app, check user subscription and daily limits
+    // Check if user is admin (unlimited downloads)
+    if (user.role !== 'ADMIN') {
+      // Get user's active subscription
+      const activeSubscription = await UserSubscription.findOne({
+        userId: user._id,
+        isActive: true,
+        endDate: { $gte: new Date() }
+      }).populate('planId');
+
+      if (!activeSubscription) {
+        return res.status(403).json({
+          success: false,
+          message: 'Active subscription required to download assets'
+        });
+      }
+
+      // Check daily download limit
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const todayDownloads = await Download.countDocuments({
+        userId: user._id,
+        downloadedAt: {
+          $gte: today,
+          $lt: tomorrow
+        }
+      });
+
+      const dailyLimit = activeSubscription.planId.dailyDownloadLimit;
+      
+      if (todayDownloads >= dailyLimit) {
+        return res.status(429).json({
+          success: false,
+          message: `Daily download limit of ${dailyLimit} reached. Limit resets at ${tomorrow.toLocaleTimeString()}`
+        });
+      }
+    }
+
+    // Record the download in the database
+    await Download.create({
+      userId: userId,
+      assetId: assetId,
+      downloadedAt: new Date()
+    });
+    
+    console.log(`📥 Download recorded: ${asset.name} by user ${userId}`);
+
     res.json({
       success: true,
       message: 'Download started',
@@ -2620,28 +2660,118 @@ app.post('/api/downloads/:assetId', async (req, res) => {
   }
 });
 
+// Helper function to extract user ID from JWT token
+function extractUserIdFromToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  try {
+    const token = authHeader.split(' ')[1];
+    // For demo purposes, we'll decode the token payload without verification
+    // In production, you should verify the JWT signature
+    const base64Payload = token.split('.')[1];
+    const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString());
+    return payload.userId || payload.id || payload.sub;
+  } catch (error) {
+    console.error('Error decoding JWT token:', error);
+    return null;
+  }
+}
+
 // Get download status/limits for current user
 app.get('/api/downloads/status', async (req, res) => {
   try {
-    const userId = req.headers['user-id'] || 'anonymous';
+    const userId = req.headers['user-id'] || extractUserIdFromToken(req.headers['authorization']);
     
-    // For demo purposes, we'll simulate user subscription status
-    // In real app, this would check actual user subscription from database
-    const mockUserStatus = {
-      isAdmin: userId === 'admin',
-      hasSubscription: true, // Default to true for demo
-      canDownload: true,
-      remainingDownloads: 'unlimited', // or specific number
-      message: 'Ready to download',
-      subscription: {
-        planName: 'Basic Plan',
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
+    if (!userId || userId === 'anonymous' || userId === 'public') {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database not available'
+      });
+    }
+
+    // Get user from database
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Get user's active subscription
+    const activeSubscription = await UserSubscription.findOne({
+      userId: user._id,
+      isActive: true,
+      endDate: { $gte: new Date() }
+    }).populate('planId');
+
+    // Check if user is admin
+    const isAdmin = user.role === 'ADMIN';
+
+    // Get today's downloads count
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayDownloads = await Download.countDocuments({
+      userId: user._id,
+      downloadedAt: {
+        $gte: today,
+        $lt: tomorrow
       }
-    };
+    });
+
+    let downloadStatus;
+    if (isAdmin) {
+      // Admin has unlimited downloads
+      downloadStatus = {
+        isAdmin: true,
+        hasSubscription: true,
+        canDownload: true,
+        remainingDownloads: 'unlimited',
+        message: 'Admin - Unlimited Downloads'
+      };
+    } else if (!activeSubscription) {
+      // No active subscription
+      downloadStatus = {
+        isAdmin: false,
+        hasSubscription: false,
+        canDownload: false,
+        remainingDownloads: 0,
+        message: 'Subscription required to download assets'
+      };
+    } else {
+      // User has active subscription
+      const dailyLimit = activeSubscription.planId.dailyDownloadLimit;
+      const remaining = Math.max(0, dailyLimit - todayDownloads);
+      
+      downloadStatus = {
+        isAdmin: false,
+        hasSubscription: true,
+        canDownload: remaining > 0,
+        remainingDownloads: remaining,
+        message: remaining > 0 ? `${remaining} downloads remaining today` : 'Daily download limit reached',
+        subscription: {
+          planName: activeSubscription.planId.name,
+          expiresAt: activeSubscription.endDate.toISOString()
+        },
+        resetsAt: tomorrow.toISOString()
+      };
+    }
     
     res.json({
       success: true,
-      data: mockUserStatus
+      data: downloadStatus
     });
   } catch (error) {
     console.error('Error getting download status:', error);
