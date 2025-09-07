@@ -180,7 +180,7 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
-// Asset Schema
+// Asset Schema (No price - subscription-based system)
 const assetSchema = new mongoose.Schema({
   name: { type: String, required: true },
   description: String,
@@ -1566,21 +1566,79 @@ app.post('/api/assets', upload.fields([
   }
 });
 
-app.get('/api/assets/:id', (req, res) => {
-  const assetId = req.params.id;
-  const asset = sampleAssets.find(a => a._id === assetId);
-
-  if (!asset) {
-    return res.status(404).json({
+app.get('/api/assets/:id', async (req, res) => {
+  try {
+    const assetId = req.params.id;
+    
+    // Check if it's a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(assetId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid asset ID format'
+      });
+    }
+    
+    // Get asset from MongoDB database
+    const asset = await Asset.findById(assetId);
+    
+    if (!asset) {
+      return res.status(404).json({
+        success: false,
+        message: 'Asset not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: { asset }
+    });
+  } catch (error) {
+    console.error('Get asset by ID error:', error);
+    res.status(500).json({
       success: false,
-      message: 'Asset not found'
+      message: 'Failed to get asset'
     });
   }
+});
 
-  res.json({
-    success: true,
-    data: { asset }
-  });
+// Update asset endpoint
+app.patch('/api/assets/:id', async (req, res) => {
+  try {
+    const assetId = req.params.id;
+    const updateData = req.body;
+    
+    // Update asset in MongoDB database
+    const asset = await Asset.findById(assetId);
+    if (!asset) {
+      return res.status(404).json({
+        success: false,
+        message: 'Asset not found'
+      });
+    }
+    
+    // Update only the fields provided
+    if (updateData.name !== undefined) asset.name = updateData.name;
+    if (updateData.description !== undefined) asset.description = updateData.description;
+    if (updateData.categoryId !== undefined) asset.categoryId = updateData.categoryId;
+    if (updateData.isActive !== undefined) asset.isActive = updateData.isActive;
+    if (updateData.tags !== undefined) asset.tags = updateData.tags;
+    
+    asset.updatedAt = new Date();
+    
+    await asset.save();
+    
+    res.json({
+      success: true,
+      message: 'Asset updated successfully',
+      data: { asset }
+    });
+  } catch (error) {
+    console.error('Update asset error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update asset'
+    });
+  }
 });
 
 // Toggle asset status endpoint
@@ -2329,6 +2387,7 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/assets              - Get assets (with pagination)`);
   console.log(`   GET  /api/assets/featured     - Get featured assets`);
   console.log(`   GET  /api/assets/:id          - Get asset by ID`);
+  console.log(`   PATCH /api/assets/:id         - Update asset`);
   console.log(`   GET  /api/categories          - Get categories`);
   console.log(`   GET  /api/categories/active   - Get active categories`);
   console.log(`   GET  /api/subscriptions/plans - Get subscription plans`);
