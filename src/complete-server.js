@@ -245,6 +245,19 @@ const subscriptionPackageSchema = new mongoose.Schema({
 
 const SubscriptionPackage = mongoose.model('SubscriptionPackage', subscriptionPackageSchema);
 
+// UserSubscription Schema
+const userSubscriptionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  planId: { type: String, required: true }, // Changed to String to work with samplePlans IDs
+  startDate: { type: Date, default: Date.now },
+  endDate: { type: Date, required: true },
+  isActive: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const UserSubscription = mongoose.model('UserSubscription', userSubscriptionSchema);
+
 // Sample data for demonstration - downloads will be calculated from real database records
 const sampleAssets = [
   {
@@ -636,20 +649,42 @@ app.get('/api/users', async (req, res) => {
         User.countDocuments(query)
       ]);
 
-      // Add download and asset counts
+      // Add download and asset counts, plus subscription info
       const usersWithCounts = await Promise.all(
         users.map(async (user) => {
-          const [downloadCount, assetCount] = await Promise.all([
+          const [downloadCount, assetCount, activeSubscription] = await Promise.all([
             Download.countDocuments({ userId: user._id }),
-            Asset.countDocuments({ createdBy: user._id })
+            Asset.countDocuments({ createdBy: user._id }),
+            UserSubscription.findOne({ 
+              userId: user._id, 
+              isActive: true,
+              endDate: { $gte: new Date() } // Check if subscription is still valid
+            })
           ]);
+          
+          let subscriptionData = null;
+          if (activeSubscription) {
+            // Find the plan from samplePlans since we're using static data
+            const plan = samplePlans.find(p => p._id === activeSubscription.planId);
+            subscriptionData = {
+              _id: activeSubscription._id,
+              planName: plan?.name || 'Unknown Plan',
+              planPrice: plan?.basePrice || 0,
+              billingCycle: plan?.billingCycle || 'MONTHLY',
+              dailyDownloadLimit: plan?.dailyDownloadLimit || 0,
+              startDate: activeSubscription.startDate,
+              endDate: activeSubscription.endDate,
+              isActive: activeSubscription.isActive
+            };
+          }
           
           return {
             ...user,
             _count: {
               downloads: downloadCount,
               assets: assetCount
-            }
+            },
+            subscription: subscriptionData
           };
         })
       );
@@ -762,6 +797,18 @@ app.get('/api/users/stats', async (req, res) => {
       const inactiveUsers = await User.countDocuments({ isActive: false });
       const adminUsers = await User.countDocuments({ role: 'ADMIN' });
       
+      // Count users with active subscriptions, excluding admins
+      const usersWithActiveSubscriptions = await UserSubscription.distinct('userId', {
+        isActive: true,
+        endDate: { $gte: new Date() } // Make sure subscription hasn't expired
+      });
+      
+      // Filter out admin users from the subscription count
+      const nonAdminUsersWithSubscriptions = await User.countDocuments({
+        _id: { $in: usersWithActiveSubscriptions },
+        role: { $ne: 'ADMIN' } // Exclude admins
+      });
+      
       res.json({
         success: true,
         data: {
@@ -769,7 +816,7 @@ app.get('/api/users/stats', async (req, res) => {
           active: activeUsers,
           inactive: inactiveUsers,
           admins: adminUsers,
-          withActiveSubscriptions: 0 // Mock for now
+          withActiveSubscriptions: nonAdminUsersWithSubscriptions
         }
       });
     } else {
@@ -2086,6 +2133,118 @@ app.get('/api/subscriptions/admin/stats', async (req, res) => {
   }
 });
 
+// Assign subscription to user endpoint
+app.post('/api/subscriptions/assign', async (req, res) => {
+  try {
+    const { userId, planId, startDate } = req.body;
+
+    // Validation
+    if (!userId || !planId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId and planId are required'
+      });
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      // Verify user exists
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Find the plan to get billing cycle and calculate end date
+      const plan = samplePlans.find(p => p._id === planId);
+      if (!plan) {
+        return res.status(404).json({
+          success: false,
+          message: 'Subscription plan not found'
+        });
+      }
+
+      // Calculate end date based on billing cycle
+      const start = startDate ? new Date(startDate) : new Date();
+      const endDate = new Date(start);
+      
+      switch (plan.billingCycle) {
+        case 'WEEKLY':
+          endDate.setDate(endDate.getDate() + 7);
+          break;
+        case 'MONTHLY':
+          endDate.setMonth(endDate.getMonth() + 1);
+          break;
+        case 'YEARLY':
+          endDate.setFullYear(endDate.getFullYear() + 1);
+          break;
+        default:
+          endDate.setMonth(endDate.getMonth() + 1); // Default to monthly
+      }
+
+      // Deactivate any existing active subscriptions for this user
+      await UserSubscription.updateMany(
+        { userId: userId, isActive: true },
+        { isActive: false, updatedAt: new Date() }
+      );
+
+      // Create new subscription - store planId as string since we're using samplePlans
+      const newSubscription = new UserSubscription({
+        userId: userId,
+        planId: planId, // This will be a string from samplePlans
+        startDate: start,
+        endDate: endDate,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      const savedSubscription = await newSubscription.save();
+
+      // Populate the response with user and plan details
+      const populatedSubscription = await UserSubscription.findById(savedSubscription._id)
+        .populate('userId', 'name email')
+        .populate('planId', 'name description basePrice billingCycle dailyDownloadLimit');
+
+      res.json({
+        success: true,
+        message: 'Subscription assigned successfully',
+        data: {
+          subscription: populatedSubscription
+        }
+      });
+
+    } else {
+      // Demo mode - just return success with mock data
+      res.json({
+        success: true,
+        message: 'Subscription assigned successfully (demo mode)',
+        data: {
+          subscription: {
+            _id: 'demo-subscription-id',
+            userId: userId,
+            planId: planId,
+            startDate: startDate || new Date().toISOString(),
+            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            isActive: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('Error assigning subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to assign subscription',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
 // ==================== PAYMENT ROUTES ====================
 
 // Initialize Stripe
@@ -2391,6 +2550,7 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/categories          - Get categories`);
   console.log(`   GET  /api/categories/active   - Get active categories`);
   console.log(`   GET  /api/subscriptions/plans - Get subscription plans`);
+  console.log(`   POST /api/subscriptions/assign - Assign subscription to user`);
   console.log(`   GET  /api/subscriptions/admin/stats - Get admin stats`);
   console.log(`   POST /api/payments/create-checkout-session - Create payment session`);
   console.log(`   POST /api/payments/create-subscription-manual - Create manual subscription`);
