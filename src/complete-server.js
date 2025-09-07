@@ -250,7 +250,7 @@ const SubscriptionPackage = mongoose.model('SubscriptionPackage', subscriptionPa
 // UserSubscription Schema
 const userSubscriptionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  planId: { type: String, required: true }, // Changed to String to work with samplePlans IDs
+  planId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionPackage', required: true },
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date, required: true },
   isActive: { type: Boolean, default: true },
@@ -661,19 +661,17 @@ app.get('/api/users', async (req, res) => {
               userId: user._id, 
               isActive: true,
               endDate: { $gte: new Date() } // Check if subscription is still valid
-            })
+            }).populate('planId', 'name basePrice billingCycle dailyDownloadLimit')
           ]);
           
           let subscriptionData = null;
-          if (activeSubscription) {
-            // Find the plan from samplePlans since we're using static data
-            const plan = samplePlans.find(p => p._id === activeSubscription.planId);
+          if (activeSubscription && activeSubscription.planId) {
             subscriptionData = {
               _id: activeSubscription._id,
-              planName: plan?.name || 'Unknown Plan',
-              planPrice: plan?.basePrice || 0,
-              billingCycle: plan?.billingCycle || 'MONTHLY',
-              dailyDownloadLimit: plan?.dailyDownloadLimit || 0,
+              planName: activeSubscription.planId.name,
+              planPrice: activeSubscription.planId.basePrice,
+              billingCycle: activeSubscription.planId.billingCycle,
+              dailyDownloadLimit: activeSubscription.planId.dailyDownloadLimit,
               startDate: activeSubscription.startDate,
               endDate: activeSubscription.endDate,
               isActive: activeSubscription.isActive
@@ -2038,15 +2036,26 @@ app.get('/api/subscriptions/plans', async (req, res) => {
     console.log('STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? 'Set (****)' : 'Not set');
     console.log('Stripe instance:', stripe ? 'Initialized' : 'Not initialized');
 
-    if (!stripe || !process.env.STRIPE_SECRET_KEY) {
-      console.log('⚠️ Stripe not configured, falling back to sample data');
-      // Fallback to sample data if Stripe is not configured
-      return res.json({
-        success: true,
-        data: {
-          plans: samplePlans
-        }
-      });
+    // Check if admin requested database-only plans (for subscription assignment)
+    const forceDatabase = req.query.source === 'database';
+
+    if (forceDatabase || !stripe || !process.env.STRIPE_SECRET_KEY) {
+      console.log(forceDatabase ? '📊 Database-only plans requested' : '⚠️ Stripe not configured, falling back to database data');
+      // Fallback to database data if Stripe is not configured
+      if (mongoose.connection.readyState === 1) {
+        const plans = await SubscriptionPackage.find({ isActive: true }).sort({ basePrice: 1 });
+        return res.json({
+          success: true,
+          data: {
+            plans: plans
+          }
+        });
+      } else {
+        return res.status(503).json({
+          success: false,
+          message: 'Database not connected and Stripe not configured'
+        });
+      }
     }
 
     console.log('✅ Fetching plans from Stripe...');
@@ -2119,13 +2128,29 @@ app.get('/api/subscriptions/plans', async (req, res) => {
   } catch (error) {
     console.error('Error fetching Stripe plans:', error);
     
-    // Fallback to sample data on error
-    res.json({
-      success: true,
-      data: {
-        plans: samplePlans
+    // Fallback to database data on error
+    try {
+      if (mongoose.connection.readyState === 1) {
+        const plans = await SubscriptionPackage.find({ isActive: true }).sort({ basePrice: 1 });
+        res.json({
+          success: true,
+          data: {
+            plans: plans
+          }
+        });
+      } else {
+        res.status(503).json({
+          success: false,
+          message: 'Database not connected and Stripe error occurred'
+        });
       }
-    });
+    } catch (dbError) {
+      console.error('Database fallback failed:', dbError);
+      res.status(500).json({
+        success: false,
+        message: 'Both Stripe and database failed'
+      });
+    }
   }
 });
 
@@ -2259,12 +2284,22 @@ app.post('/api/subscriptions/assign', async (req, res) => {
         });
       }
 
-      // Find the plan to get billing cycle and calculate end date
-      const plan = samplePlans.find(p => p._id === planId);
+      // Find the plan from database - only accept MongoDB ObjectIds
+      // Check if planId looks like a MongoDB ObjectId (24 hex characters)
+      const isObjectId = /^[0-9a-fA-F]{24}$/.test(planId);
+      
+      if (!isObjectId) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid plan ID format. Expected MongoDB ObjectId, received: ${planId}. Please use the _id field from /api/subscriptions/plans endpoint.`
+        });
+      }
+      
+      const plan = await SubscriptionPackage.findById(planId);
       if (!plan) {
         return res.status(404).json({
           success: false,
-          message: 'Subscription plan not found'
+          message: 'Subscription plan not found with the provided ObjectId'
         });
       }
 
@@ -2292,10 +2327,10 @@ app.post('/api/subscriptions/assign', async (req, res) => {
         { isActive: false, updatedAt: new Date() }
       );
 
-      // Create new subscription - store planId as string since we're using samplePlans
+      // Create new subscription with MongoDB ObjectId for planId
       const newSubscription = new UserSubscription({
         userId: userId,
-        planId: planId, // This will be a string from samplePlans
+        planId: planId, // MongoDB ObjectId from SubscriptionPackage
         startDate: start,
         endDate: endDate,
         isActive: true,
