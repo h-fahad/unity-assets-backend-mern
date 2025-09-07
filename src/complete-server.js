@@ -2030,13 +2030,101 @@ app.patch('/api/categories/:id/toggle-status', async (req, res) => {
 
 // ==================== SUBSCRIPTION ROUTES ====================
 
-app.get('/api/subscriptions/plans', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      plans: samplePlans
+app.get('/api/subscriptions/plans', async (req, res) => {
+  try {
+    console.log('🔍 Subscription plans request - checking Stripe configuration...');
+    console.log('STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? 'Set (****)' : 'Not set');
+    console.log('Stripe instance:', stripe ? 'Initialized' : 'Not initialized');
+
+    if (!stripe || !process.env.STRIPE_SECRET_KEY) {
+      console.log('⚠️ Stripe not configured, falling back to sample data');
+      // Fallback to sample data if Stripe is not configured
+      return res.json({
+        success: true,
+        data: {
+          plans: samplePlans
+        }
+      });
     }
-  });
+
+    console.log('✅ Fetching plans from Stripe...');
+
+    // Fetch products and prices from Stripe
+    const [products, prices] = await Promise.all([
+      stripe.products.list({ 
+        active: true,
+        limit: 100 
+      }),
+      stripe.prices.list({ 
+        active: true,
+        limit: 100 
+      })
+    ]);
+
+    // Transform Stripe data to our format
+    const plans = products.data.map(product => {
+      // Find associated prices for this product
+      const productPrices = prices.data.filter(price => price.product === product.id);
+      
+      // Get monthly price (default) - you can adjust this logic based on your setup
+      const monthlyPrice = productPrices.find(price => 
+        price.recurring?.interval === 'month'
+      ) || productPrices[0];
+
+      const yearlyPrice = productPrices.find(price => 
+        price.recurring?.interval === 'year'
+      );
+
+      // Calculate yearly discount if both monthly and yearly prices exist
+      let yearlyDiscount = 0;
+      if (monthlyPrice && yearlyPrice) {
+        const monthlyTotal = (monthlyPrice.unit_amount / 100) * 12;
+        const yearlyTotal = yearlyPrice.unit_amount / 100;
+        yearlyDiscount = Math.round(((monthlyTotal - yearlyTotal) / monthlyTotal) * 100);
+      }
+
+      // Extract custom metadata or use defaults
+      const dailyDownloadLimit = parseInt(product.metadata.dailyDownloadLimit) || 10;
+      const features = product.metadata.features ? 
+        product.metadata.features.split('|') : 
+        [`${product.name} plan features`];
+
+      return {
+        _id: product.id,
+        id: product.id,
+        name: product.name,
+        description: product.description || `${product.name} subscription plan`,
+        basePrice: monthlyPrice ? (monthlyPrice.unit_amount / 100) : 0,
+        billingCycle: 'MONTHLY', // Default to monthly
+        yearlyDiscount: yearlyDiscount,
+        dailyDownloadLimit: dailyDownloadLimit,
+        features: features,
+        isActive: product.active,
+        createdAt: new Date(product.created * 1000).toISOString(),
+        updatedAt: new Date(product.updated * 1000).toISOString(),
+        stripeProductId: product.id,
+        stripePriceId: monthlyPrice?.id
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        plans: plans
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching Stripe plans:', error);
+    
+    // Fallback to sample data on error
+    res.json({
+      success: true,
+      data: {
+        plans: samplePlans
+      }
+    });
+  }
 });
 
 // Admin stats endpoint
