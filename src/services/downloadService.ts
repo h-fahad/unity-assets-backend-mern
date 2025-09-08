@@ -1,6 +1,7 @@
 import { Download } from '../models/Download';
 import { UserSubscription } from '../models/UserSubscription';
 import { SubscriptionPlan } from '../models/SubscriptionPlan';
+import { User } from '../models/User';
 import { webhookService } from './webhookService';
 
 export class DownloadService {
@@ -328,7 +329,6 @@ export class DownloadService {
    */
   async isAdminUser(userId: string): Promise<boolean> {
     try {
-      const User = require('../models/User').User;
       const user = await User.findById(userId);
       return user?.role === 'ADMIN';
     } catch (error) {

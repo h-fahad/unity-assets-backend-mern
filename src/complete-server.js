@@ -2787,21 +2787,31 @@ app.get('/api/downloads/status', async (req, res) => {
       };
     } else {
       // User has active subscription
-      const dailyLimit = activeSubscription.planId.dailyDownloadLimit;
-      const remaining = Math.max(0, dailyLimit - todayDownloads);
-      
-      downloadStatus = {
-        isAdmin: false,
-        hasSubscription: true,
-        canDownload: remaining > 0,
-        remainingDownloads: remaining,
-        message: remaining > 0 ? `${remaining} downloads remaining today` : 'Daily download limit reached',
-        subscription: {
-          planName: activeSubscription.planId.name,
-          expiresAt: activeSubscription.endDate.toISOString()
-        },
-        resetsAt: tomorrow.toISOString()
-      };
+      if (!activeSubscription.planId) {
+        downloadStatus = {
+          isAdmin: false,
+          hasSubscription: false,
+          canDownload: false,
+          remainingDownloads: 0,
+          message: 'Subscription plan not found'
+        };
+      } else {
+        const dailyLimit = activeSubscription.planId.dailyDownloadLimit;
+        const remaining = Math.max(0, dailyLimit - todayDownloads);
+        
+        downloadStatus = {
+          isAdmin: false,
+          hasSubscription: true,
+          canDownload: remaining > 0,
+          remainingDownloads: remaining,
+          message: remaining > 0 ? `${remaining} downloads remaining today` : 'Daily download limit reached',
+          subscription: {
+            planName: activeSubscription.planId.name,
+            expiresAt: activeSubscription.endDate.toISOString()
+          },
+          resetsAt: tomorrow.toISOString()
+        };
+      }
     }
     
     res.json({
