@@ -282,8 +282,12 @@ export class WebhookService {
     try {
       const now = new Date();
       
+      // Convert userId to ObjectId for proper matching since the model stores ObjectIds
+      const mongoose = require('mongoose');
+      const userObjectId = new mongoose.Types.ObjectId(userId);
+      
       const subscription = await UserSubscription.findOne({
-        userId,
+        userId: userObjectId,
         isActive: true,
         stripeStatus: 'active',
         startDate: { $lte: now },

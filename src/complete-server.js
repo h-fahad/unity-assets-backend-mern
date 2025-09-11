@@ -245,12 +245,12 @@ const subscriptionPackageSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-const SubscriptionPackage = mongoose.model('SubscriptionPackage', subscriptionPackageSchema);
+const SubscriptionPackage = mongoose.model('SubscriptionPlan', subscriptionPackageSchema);
 
 // UserSubscription Schema
 const userSubscriptionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  planId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionPackage', required: true },
+  planId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionPlan', required: true },
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date, required: true },
   isActive: { type: Boolean, default: true },
@@ -2390,22 +2390,24 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // Map plan IDs to Stripe Price IDs
 const getStripePriceId = (planId, billingCycle) => {
+  console.log('🔍 getStripePriceId called with:', { planId, billingCycle });
+  
   const priceMap = {
-    '507f1f77bcf86cd799439031': { // Basic
-      MONTHLY: process.env.STRIPE_PRICE_BASIC_MONTHLY,
-      YEARLY: process.env.STRIPE_PRICE_BASIC_YEARLY
+    'prod_Srr8zFiQR4vnb8': { // Pro
+      MONTHLY: 'price_1Rw7QfBb14GWd0WSu3bkoaV0',
+      YEARLY: 'price_1Rw7QfBb14GWd0WSu3bkoaV0' // TODO: Add yearly price
     },
-    '507f1f77bcf86cd799439032': { // Pro
-      MONTHLY: process.env.STRIPE_PRICE_PRO_MONTHLY,
-      YEARLY: process.env.STRIPE_PRICE_PRO_YEARLY
-    },
-    '507f1f77bcf86cd799439033': { // Enterprise
-      MONTHLY: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY,
-      YEARLY: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY
+    'prod_Syd9gplrywuT5z': { // Enterprise
+      MONTHLY: 'price_1S2ftVBb14GWd0WSqKX5iIeR',
+      YEARLY: 'price_1S2ftVBb14GWd0WSqKX5iIeR' // TODO: Add yearly price
     }
   };
   
-  return priceMap[planId]?.[billingCycle];
+  const result = priceMap[planId]?.[billingCycle];
+  console.log('🔍 getStripePriceId result:', result);
+  console.log('🔍 Available planIds:', Object.keys(priceMap));
+  
+  return result;
 };
 
 // Create Stripe checkout session for subscription
@@ -2423,9 +2425,41 @@ app.post('/api/payments/create-checkout-session', async (req, res) => {
       });
     }
 
-    // Get Stripe Price ID
-    const stripePriceId = getStripePriceId(planId, billingCycle);
-    console.log(`Plan ID: ${planId}, Billing Cycle: ${billingCycle}, Stripe Price ID: ${stripePriceId}`);
+    // Get Stripe Price ID dynamically from Stripe API
+    let stripePriceId = null;
+    try {
+      // First, try to get all prices for this product
+      const prices = await stripe.prices.list({
+        product: planId,
+        active: true,
+        type: 'recurring'
+      });
+      
+      console.log(`Found ${prices.data.length} prices for product ${planId}`);
+      
+      // Find the price that matches the billing cycle
+      const billingCycleMap = {
+        'WEEKLY': 'week',
+        'MONTHLY': 'month', 
+        'YEARLY': 'year'
+      };
+      
+      const targetInterval = billingCycleMap[billingCycle];
+      const matchingPrice = prices.data.find(price => 
+        price.recurring?.interval === targetInterval
+      );
+      
+      if (matchingPrice) {
+        stripePriceId = matchingPrice.id;
+        console.log(`Found matching price: ${stripePriceId} for ${billingCycle}`);
+      } else {
+        console.log(`No price found for billing cycle: ${billingCycle}, available intervals:`, 
+          prices.data.map(p => p.recurring?.interval));
+      }
+      
+    } catch (error) {
+      console.error('Error fetching prices from Stripe:', error);
+    }
     
     if (!stripePriceId) {
       return res.status(400).json({
@@ -2627,8 +2661,16 @@ app.post('/api/downloads/:assetId', async (req, res) => {
       const activeSubscription = await UserSubscription.findOne({
         userId: user._id,
         isActive: true,
+        stripeStatus: 'active',
+        startDate: { $lte: new Date() },
         endDate: { $gte: new Date() }
-      }).populate('planId');
+      });
+      
+      // Manually populate the plan since strict populate doesn't work
+      if (activeSubscription && activeSubscription.planId) {
+        const plan = await SubscriptionPackage.findById(activeSubscription.planId);
+        activeSubscription.planId = plan;
+      }
 
       if (!activeSubscription) {
         return res.status(403).json({
@@ -2717,24 +2759,27 @@ function extractUserIdFromToken(authHeader) {
 // Get download status/limits for current user
 app.get('/api/downloads/status', async (req, res) => {
   try {
-    const userId = req.headers['user-id'] || extractUserIdFromToken(req.headers['authorization']);
+    console.log('✅ Download status route is working');
     
-    if (!userId || userId === 'anonymous' || userId === 'public') {
+    // Extract JWT token from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
-        message: 'Authentication required'
+        message: 'Authorization token required'
       });
     }
 
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
+    const userId = extractUserIdFromToken(authHeader);
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: 'Database not available'
+        message: 'Invalid token'
       });
     }
 
     // Get user from database
-    const user = await User.findById(userId).select('-password');
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -2746,8 +2791,16 @@ app.get('/api/downloads/status', async (req, res) => {
     const activeSubscription = await UserSubscription.findOne({
       userId: user._id,
       isActive: true,
+      stripeStatus: 'active',
+      startDate: { $lte: new Date() },
       endDate: { $gte: new Date() }
-    }).populate('planId');
+    });
+    
+    // Manually populate the plan since strict populate doesn't work
+    if (activeSubscription && activeSubscription.planId) {
+      const plan = await SubscriptionPackage.findById(activeSubscription.planId);
+      activeSubscription.planId = plan;
+    }
 
     // Check if user is admin
     const isAdmin = user.role === 'ADMIN';
