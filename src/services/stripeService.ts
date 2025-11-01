@@ -16,20 +16,20 @@ let stripe: Stripe;
 export interface StripePrice {
   basic_monthly: string;
   basic_yearly: string;
-  pro_monthly: string;
-  pro_yearly: string;
-  enterprise_monthly: string;
-  enterprise_yearly: string;
+  standard_monthly: string;
+  standard_yearly: string;
+  premium_monthly: string;
+  premium_yearly: string;
 }
 
 // Stripe Price IDs from environment variables
 export const STRIPE_PRICES: StripePrice = {
   basic_monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY!,
   basic_yearly: process.env.STRIPE_PRICE_BASIC_YEARLY!,
-  pro_monthly: process.env.STRIPE_PRICE_PRO_MONTHLY!,
-  pro_yearly: process.env.STRIPE_PRICE_PRO_YEARLY!,
-  enterprise_monthly: process.env.STRIPE_PRICE_ENTERPRISE_MONTHLY!,
-  enterprise_yearly: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY!,
+  standard_monthly: process.env.STRIPE_PRICE_STANDARD_MONTHLY!,
+  standard_yearly: process.env.STRIPE_PRICE_STANDARD_YEARLY!,
+  premium_monthly: process.env.STRIPE_PRICE_PREMIUM_MONTHLY!,
+  premium_yearly: process.env.STRIPE_PRICE_PREMIUM_YEARLY!,
 };
 
 export class StripeService {
@@ -47,16 +47,16 @@ export class StripeService {
    * Get Stripe price ID based on plan name and billing cycle
    */
   getPriceId(planName: string, billingCycle: BillingCycle): string {
-    const planKey = planName.toLowerCase() as 'basic' | 'pro' | 'enterprise';
+    const planKey = planName.toLowerCase() as 'basic' | 'standard' | 'premium';
     const cycleKey = billingCycle.toLowerCase() as 'monthly' | 'yearly';
-    
+
     const priceKey = `${planKey}_${cycleKey}` as keyof StripePrice;
     const priceId = STRIPE_PRICES[priceKey];
-    
+
     if (!priceId) {
       throw new Error(`No Stripe price ID found for plan: ${planName}, cycle: ${billingCycle}`);
     }
-    
+
     return priceId;
   }
 
