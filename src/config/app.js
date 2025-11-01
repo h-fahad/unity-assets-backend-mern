@@ -1,9 +1,10 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+const helmet = require('helmet');
+const morgan = require('morgan');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 // CORS configuration
 const corsOptions = {
@@ -15,10 +16,10 @@ const corsOptions = {
       'http://localhost:3001',
       'http://127.0.0.1:3000'
     ];
-    
+
     // Allow requests with no origin (mobile apps, etc.)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -32,40 +33,12 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
+// Middleware
+app.use(helmet());
 app.use(cors(corsOptions));
-
-// Basic middleware
-app.use(express.json());
-
-// Single health check route
-app.get('/', function(req, res) {
-  res.json({ 
-    status: 'OK', 
-    message: 'Unity Assets MERN Backend is running!',
-    timestamp: new Date().toISOString(),
-    service: 'Unity Assets MERN Backend',
-    version: '1.0.0'
-  });
-});
-
-// API health check
-app.get('/api/health', function(req, res) {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    service: 'Unity Assets MERN Backend'
-  });
-});
-
-// CORS test endpoint
-app.get('/api/cors-test', function(req, res) {
-  res.json({
-    message: 'CORS is working!',
-    origin: req.headers.origin,
-    timestamp: new Date().toISOString(),
-    headers: req.headers
-  });
-});
+app.use(morgan('combined'));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Preflight OPTIONS handler for all routes
 app.options(/.*/, function(req, res) {
@@ -76,18 +49,13 @@ app.options(/.*/, function(req, res) {
   res.sendStatus(200);
 });
 
-// Logging middleware for debugging
-app.use(function(req, res, next) {
-  console.log('Request:', req.method, req.url, 'Origin:', req.headers.origin);
+// Debug middleware to see all requests
+app.use((req, res, next) => {
+  console.log(`🌐 ${req.method} ${req.path} - ${new Date().toISOString()}`);
   next();
 });
 
-// Start server
-app.listen(PORT, function() {
-  console.log('🚀 Server running on port ' + PORT);
-  console.log('📊 Environment: ' + (process.env.NODE_ENV || 'development'));
-  console.log('🔗 API Base URL: http://localhost:' + PORT + '/api');
-  console.log('🔐 CORS Origins: https://unity-assets-frontend.vercel.app, localhost:3000');
-});
+// Static files
+app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
 module.exports = app;

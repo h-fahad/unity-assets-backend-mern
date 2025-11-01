@@ -2,7 +2,7 @@
   "watch": ["src"],
   "ext": "js,ts,json",
   "ignore": ["src/**/*.spec.ts"],
-  "exec": "node src/complete-server.js",
+  "exec": "node src/server.js",
   "env": {
     "NODE_ENV": "development"
   }

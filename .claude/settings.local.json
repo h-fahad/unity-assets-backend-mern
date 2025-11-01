@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(git log:*)",
+      "Bash(awk:*)",
+      "Bash(rm:*)",
+      "Bash(node src/server.js:*)",
+      "Bash(curl:*)",
+      "Bash(tree:*)",
+      "Bash(npm start)",
+      "Bash(npm run dev:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
