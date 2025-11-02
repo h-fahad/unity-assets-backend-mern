@@ -9,21 +9,21 @@ export interface AuthRequest extends Request {
 }
 
 // Generate JWT Access Token
-export const generateToken = (userId: string): string => {
+export const generateToken = (userId: string, tokenVersion: number = 0): string => {
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is not set');
   }
-  return jwt.sign({ userId }, process.env.JWT_SECRET, {
+  return jwt.sign({ userId, tokenVersion }, process.env.JWT_SECRET, {
     expiresIn: '15m' // Short-lived access token
   });
 };
 
 // Generate JWT Refresh Token
-export const generateRefreshToken = (userId: string): string => {
+export const generateRefreshToken = (userId: string, tokenVersion: number = 0): string => {
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is not set');
   }
-  return jwt.sign({ userId, type: 'refresh' }, process.env.JWT_SECRET, {
+  return jwt.sign({ userId, tokenVersion, type: 'refresh' }, process.env.JWT_SECRET, {
     expiresIn: '30d' // Long-lived refresh token
   });
 };
@@ -48,17 +48,22 @@ export const protect = asyncHandler(async (req: AuthRequest, res: Response, next
 
   try {
     // Verify token
-    const decoded = verifyToken(token) as { userId: string };
+    const decoded = verifyToken(token) as { userId: string; tokenVersion?: number };
 
     // Find user by ID
     const user = await User.findById(decoded.userId).select('-password');
-    
+
     if (!user) {
       return next(createError('No user found with this ID', 404));
     }
 
     if (!user.isActive) {
       return next(createError('User account is deactivated', 401));
+    }
+
+    // Verify token version - invalidate old tokens after password change
+    if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== user.tokenVersion) {
+      return next(createError('Token has been invalidated. Please login again.', 401));
     }
 
     // Attach user to request object

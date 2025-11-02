@@ -80,6 +80,10 @@ const userSchema = new Schema<IUser>({
     type: Boolean,
     default: false
   },
+  tokenVersion: {
+    type: Number,
+    default: 0
+  },
   refreshTokens: [{
     token: String,
     createdAt: { type: Date, default: Date.now },

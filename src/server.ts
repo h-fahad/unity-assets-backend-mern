@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -11,7 +12,7 @@ import { connectDB } from './config/database';
 import { errorHandler } from './middleware/error';
 
 // Import routes
-import authRoutes from './routes/auth';
+import authRoutes from './routes/enhancedAuth';
 import userRoutes from './routes/users';
 import assetRoutes from './routes/assets';
 import categoryRoutes from './routes/categories';
@@ -24,6 +25,17 @@ import packageRoutes from './routes/packages';
 // Load environment variables
 dotenv.config();
 
+// Validate JWT secret strength on startup
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables');
+  process.exit(1);
+}
+
+if (process.env.JWT_SECRET.length < 32) {
+  console.error('FATAL ERROR: JWT_SECRET must be at least 32 characters long for security');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -33,12 +45,15 @@ connectDB();
 // Security middleware
 app.use(helmet());
 app.use(compression());
+app.use(mongoSanitize()); // Prevent NoSQL injection attacks
 
-// Rate limiting
+// Rate limiting - Strengthened to prevent brute force attacks
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+  max: 50, // Reduced from 100 to 50 requests per windowMs for better security
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true, // Return rate limit info in headers
+  legacyHeaders: false, // Disable X-RateLimit-* headers
 });
 app.use(limiter);
 

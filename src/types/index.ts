@@ -41,6 +41,7 @@ export interface IUser extends Document {
   lastLogin?: Date;
   twoFactorSecret?: string;
   twoFactorEnabled: boolean;
+  tokenVersion: number;
   refreshTokens: Array<{
     token: string;
     createdAt: Date;

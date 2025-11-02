@@ -39,6 +39,16 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
     return next(createError('Email and password are required', 400));
   }
 
+  // Validate password strength
+  if (password.length < 8) {
+    return next(createError('Password must be at least 8 characters long', 400));
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(password)) {
+    return next(createError('Password must contain at least 8 characters with uppercase, lowercase, number and special character', 400));
+  }
+
   // Check if user already exists
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -123,6 +133,11 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
     return next(createError('Account is deactivated', 401));
   }
 
+  // Check if email is verified
+  if (!user.isEmailVerified) {
+    return next(createError('Please verify your email before logging in. Check your inbox for the verification link.', 403));
+  }
+
   // Verify password
   const isPasswordValid = await user.comparePassword(password);
   if (!isPasswordValid) {
@@ -133,9 +148,9 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
   // Reset login attempts on successful login
   await user.resetLoginAttempts();
 
-  // Generate tokens
-  const accessToken = generateToken(user._id.toString());
-  const refreshToken = generateRefreshToken(user._id.toString());
+  // Generate tokens with current token version
+  const accessToken = generateToken(user._id.toString(), user.tokenVersion);
+  const refreshToken = generateRefreshToken(user._id.toString(), user.tokenVersion);
 
   // Store refresh token
   user.addRefreshToken(refreshToken, deviceInfo);
@@ -279,6 +294,16 @@ export const resetPasswordWithOTP = asyncHandler(async (req: Request, res: Respo
     return next(createError('Email, OTP, and new password are required', 400));
   }
 
+  // Validate password strength
+  if (newPassword.length < 8) {
+    return next(createError('Password must be at least 8 characters long', 400));
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    return next(createError('Password must contain at least 8 characters with uppercase, lowercase, number and special character', 400));
+  }
+
   const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
 
   const user = await User.findOne({
@@ -295,10 +320,13 @@ export const resetPasswordWithOTP = asyncHandler(async (req: Request, res: Respo
   user.password = newPassword;
   user.resetPasswordOTP = undefined;
   user.resetPasswordOTPExpiry = undefined;
-  
+
+  // Increment token version to invalidate all existing tokens
+  user.tokenVersion += 1;
+
   // Clear all refresh tokens for security
   user.clearAllRefreshTokens();
-  
+
   await user.save();
 
   res.json({
@@ -329,6 +357,11 @@ export const refreshToken = asyncHandler(async (req: Request, res: Response, nex
       return next(createError('User not found or inactive', 401));
     }
 
+    // Verify token version - invalidate old tokens after password change
+    if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== user.tokenVersion) {
+      return next(createError('Token has been invalidated. Please login again.', 401));
+    }
+
     // Check if refresh token exists in user's tokens
     const hashedToken = crypto.createHash('sha256').update(refresh_token).digest('hex');
     const tokenExists = user.refreshTokens.some(rt => rt.token === hashedToken && rt.expiresAt > new Date());
@@ -337,8 +370,8 @@ export const refreshToken = asyncHandler(async (req: Request, res: Response, nex
       return next(createError('Invalid or expired refresh token', 401));
     }
 
-    // Generate new access token
-    const newAccessToken = generateToken(user._id.toString());
+    // Generate new access token with current token version
+    const newAccessToken = generateToken(user._id.toString(), user.tokenVersion);
 
     res.json({
       success: true,
@@ -416,6 +449,16 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
     return next(createError('Current password and new password are required', 400));
   }
 
+  // Validate password strength
+  if (newPassword.length < 8) {
+    return next(createError('Password must be at least 8 characters long', 400));
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    return next(createError('Password must contain at least 8 characters with uppercase, lowercase, number and special character', 400));
+  }
+
   // Get user with password
   const userWithPassword = await User.findById(user._id).select('+password');
   if (!userWithPassword) {
@@ -430,10 +473,13 @@ export const changePassword = asyncHandler(async (req: AuthRequest, res: Respons
 
   // Update password
   userWithPassword.password = newPassword;
-  
+
+  // Increment token version to invalidate all existing tokens
+  userWithPassword.tokenVersion += 1;
+
   // Clear all refresh tokens for security
   userWithPassword.clearAllRefreshTokens();
-  
+
   await userWithPassword.save();
 
   res.json({
