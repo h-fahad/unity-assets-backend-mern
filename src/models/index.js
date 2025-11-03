@@ -68,6 +68,8 @@ const subscriptionPackageSchema = new mongoose.Schema({
   yearlyDiscount: { type: Number, default: 0 },
   dailyDownloadLimit: { type: Number, required: true },
   features: [{ type: String }],
+  stripeProductId: { type: String }, // Stripe Product ID for payment integration
+  stripePriceId: { type: String }, // Stripe Price ID for specific billing cycle
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

@@ -26,6 +26,10 @@ const getStripePriceId = (planId, billingCycle) => {
   return result;
 };
 
+// Import required models
+const mongoose = require('mongoose');
+const { SubscriptionPackage } = require('../models/index');
+
 // Create Stripe checkout session for subscription
 router.post('/create-checkout-session', async (req, res) => {
   console.log('=== PAYMENT ROUTE CALLED ===');
@@ -41,46 +45,64 @@ router.post('/create-checkout-session', async (req, res) => {
       });
     }
 
-    // Get Stripe Price ID dynamically from Stripe API
-    let stripePriceId = null;
-    try {
-      // First, try to get all prices for this product
-      const prices = await stripe.prices.list({
-        product: planId,
-        active: true,
-        type: 'recurring'
+    // Fetch the plan from MongoDB
+    const plan = await SubscriptionPackage.findById(planId);
+
+    if (!plan) {
+      console.log(`Plan not found in database: ${planId}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription plan not found'
       });
+    }
 
-      console.log(`Found ${prices.data.length} prices for product ${planId}`);
+    console.log(`Found plan: ${plan.name}, billingCycle: ${plan.billingCycle}`);
 
-      // Find the price that matches the billing cycle
-      const billingCycleMap = {
-        'WEEKLY': 'week',
-        'MONTHLY': 'month',
-        'YEARLY': 'year'
-      };
+    // Check if plan has Stripe IDs configured
+    let stripePriceId = plan.stripePriceId;
+    const stripeProductId = plan.stripeProductId;
 
-      const targetInterval = billingCycleMap[billingCycle];
-      const matchingPrice = prices.data.find(price =>
-        price.recurring?.interval === targetInterval
-      );
+    // If stripePriceId is not set in the plan, try to fetch from Stripe API
+    if (!stripePriceId && stripeProductId) {
+      console.log(`No stripePriceId in plan, fetching from Stripe for product: ${stripeProductId}`);
 
-      if (matchingPrice) {
-        stripePriceId = matchingPrice.id;
-        console.log(`Found matching price: ${stripePriceId} for ${billingCycle}`);
-      } else {
-        console.log(`No price found for billing cycle: ${billingCycle}, available intervals:`,
-          prices.data.map(p => p.recurring?.interval));
+      try {
+        const prices = await stripe.prices.list({
+          product: stripeProductId,
+          active: true,
+          type: 'recurring'
+        });
+
+        console.log(`Found ${prices.data.length} prices for product ${stripeProductId}`);
+
+        // Find the price that matches the billing cycle
+        const billingCycleMap = {
+          'WEEKLY': 'week',
+          'MONTHLY': 'month',
+          'YEARLY': 'year'
+        };
+
+        const targetInterval = billingCycleMap[plan.billingCycle];
+        const matchingPrice = prices.data.find(price =>
+          price.recurring?.interval === targetInterval
+        );
+
+        if (matchingPrice) {
+          stripePriceId = matchingPrice.id;
+          console.log(`Found matching price: ${stripePriceId} for ${plan.billingCycle}`);
+        } else {
+          console.log(`No price found for billing cycle: ${plan.billingCycle}, available intervals:`,
+            prices.data.map(p => p.recurring?.interval));
+        }
+      } catch (error) {
+        console.error('Error fetching prices from Stripe:', error);
       }
-
-    } catch (error) {
-      console.error('Error fetching prices from Stripe:', error);
     }
 
     if (!stripePriceId) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid plan or billing cycle'
+        message: 'Stripe configuration missing for this plan. Please contact support.'
       });
     }
 
