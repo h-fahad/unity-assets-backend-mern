@@ -112,20 +112,15 @@ router.post('/signup', async (req, res) => {
         email,
         password, // In production: hash with bcrypt
         role: 'USER',
-        isEmailVerified: false
+        isEmailVerified: true // Auto-verify for now
       });
 
-      // Generate 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
-
-      // Save OTP to user (expires in 15 minutes)
-      user.emailVerificationOTP = hashedOTP;
-      user.emailVerificationOTPExpiry = new Date(Date.now() + 15 * 60 * 1000);
-      await user.save();
-
-      // Send OTP via email
-      await sendOTPEmail(email, otp);
+      // Generate JWT token
+      const token = jwt.sign(
+        { userId: user._id, email: user.email, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
 
       const userObj = user.toObject();
       delete userObj.password;
@@ -134,10 +129,10 @@ router.post('/signup', async (req, res) => {
 
       res.status(201).json({
         success: true,
-        message: 'Registration successful! Please check your email for a 6-digit verification code.',
+        message: 'Registration successful! You can now sign in.',
         data: {
           user: userObj,
-          requiresEmailVerification: true
+          access_token: token
         }
       });
     } else {
@@ -188,15 +183,6 @@ router.post('/login', async (req, res) => {
         return res.status(401).json({
           success: false,
           message: 'Invalid credentials'
-        });
-      }
-
-      // Check if email is verified
-      if (!user.isEmailVerified) {
-        return res.status(403).json({
-          success: false,
-          message: 'Please verify your email before logging in',
-          requiresEmailVerification: true
         });
       }
 
