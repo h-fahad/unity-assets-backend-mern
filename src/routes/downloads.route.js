@@ -69,9 +69,11 @@ router.post('/:assetId', async (req, res) => {
       const activeSubscription = await UserSubscription.findOne({
         userId: user._id,
         isActive: true,
-        stripeStatus: 'active',
-        startDate: { $lte: new Date() },
-        endDate: { $gte: new Date() }
+        endDate: { $gte: new Date() },
+        $or: [
+          { stripeStatus: { $in: ['active', 'trialing'] } },
+          { stripeStatus: { $exists: false } } // For manually created subscriptions
+        ]
       });
 
       // Manually populate the plan since strict populate doesn't work
@@ -180,9 +182,11 @@ router.get('/status', async (req, res) => {
     const activeSubscription = await UserSubscription.findOne({
       userId: user._id,
       isActive: true,
-      stripeStatus: 'active',
-      startDate: { $lte: new Date() },
-      endDate: { $gte: new Date() }
+      endDate: { $gte: new Date() },
+      $or: [
+        { stripeStatus: { $in: ['active', 'trialing'] } },
+        { stripeStatus: { $exists: false } } // For manually created subscriptions
+      ]
     });
 
     // Manually populate the plan since strict populate doesn't work

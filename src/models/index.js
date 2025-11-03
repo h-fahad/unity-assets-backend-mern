@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   password: { type: String, required: true },
   role: { type: String, enum: ['USER', 'ADMIN'], default: 'USER' },
+  stripeCustomerId: { type: String }, // Stripe customer ID for recurring billing
   isActive: { type: Boolean, default: true },
   isEmailVerified: { type: Boolean, default: false },
   emailVerificationOTP: { type: String, default: null },
@@ -79,6 +80,12 @@ const subscriptionPackageSchema = new mongoose.Schema({
 const userSubscriptionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   planId: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionPlan', required: true },
+  stripeSubscriptionId: { type: String }, // Stripe subscription ID for recurring billing
+  stripeCustomerId: { type: String }, // Stripe customer ID
+  stripeStatus: { type: String, enum: ['active', 'canceled', 'past_due', 'unpaid', 'incomplete', 'incomplete_expired', 'trialing', 'paused'] }, // Stripe subscription status
+  currentPeriodStart: { type: Date }, // Current billing period start
+  currentPeriodEnd: { type: Date }, // Current billing period end
+  cancelAtPeriodEnd: { type: Boolean, default: false }, // Whether subscription cancels at end of period
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date, required: true },
   isActive: { type: Boolean, default: true },

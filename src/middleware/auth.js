@@ -58,8 +58,8 @@ const protect = async (req, res, next) => {
     // Verify token
     const decoded = verifyToken(token);
 
-    // Find user by ID (would need User model imported)
-    const User = require('../models/User');
+    // Find user by ID
+    const { User } = require('../models/index');
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
