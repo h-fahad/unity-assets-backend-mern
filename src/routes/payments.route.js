@@ -223,17 +223,19 @@ router.post('/create-subscription-manual', async (req, res) => {
   }
 });
 
-// Stripe webhook handler (must be before body parsing middleware)
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+// Stripe webhook handler
+router.post('/webhook', async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    // Use rawBody (stored by verify function in app.js) for signature verification
+    const rawBody = req.rawBody || JSON.stringify(req.body);
+    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
+    console.error('❌ Webhook signature verification failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 

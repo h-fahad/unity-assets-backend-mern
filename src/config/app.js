@@ -37,7 +37,18 @@ const corsOptions = {
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(morgan('combined'));
-app.use(express.json({ limit: '50mb' }));
+
+// IMPORTANT: Webhook route must receive raw body for Stripe signature verification
+// Apply express.json() to all routes EXCEPT /api/payments/webhook
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, res, buf) => {
+    // Store raw body for webhook signature verification
+    if (req.originalUrl === '/api/payments/webhook') {
+      req.rawBody = buf.toString();
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Preflight OPTIONS handler for all routes
