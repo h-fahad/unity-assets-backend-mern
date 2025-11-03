@@ -7,7 +7,7 @@ import { Activity } from '../models/Activity';
 import { generateToken, generateRefreshToken, AuthRequest } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/error';
 import { ActivityType } from '../types';
-import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail } from '../services/emailService';
+import { sendVerificationEmail, sendVerificationOTP, sendPasswordResetEmail, sendWelcomeEmail } from '../services/emailService';
 
 // Rate limiting for auth endpoints
 export const authLimiter = rateLimit({
@@ -65,15 +65,15 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
       isEmailVerified: false
     });
 
-    // Generate email verification token
-    const verificationToken = user.generateEmailVerificationToken();
+    // Generate email verification OTP
+    const verificationOTP = user.generateEmailVerificationOTP();
     await user.save();
 
-    // Send verification email
+    // Send verification OTP email
     try {
-      await sendVerificationEmail(email, verificationToken);
+      await sendVerificationOTP(email, verificationOTP);
     } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
+      console.error('Failed to send verification OTP:', emailError);
       // Continue with registration even if email fails
     }
 
@@ -86,7 +86,7 @@ export const register = asyncHandler(async (req: Request, res: Response, next: N
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully. Please check your email to verify your account.',
+      message: 'User registered successfully. Please check your email for a 6-digit verification code.',
       data: {
         user: {
           id: user._id,
@@ -217,6 +217,65 @@ export const verifyEmail = asyncHandler(async (req: Request, res: Response, next
   });
 });
 
+// Verify email with OTP
+export const verifyEmailOTP = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return next(createError('Email and OTP are required', 400));
+  }
+
+  // Validate OTP format (6 digits)
+  if (!/^\d{6}$/.test(otp)) {
+    return next(createError('Invalid OTP format. OTP must be 6 digits', 400));
+  }
+
+  const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
+
+  const user = await User.findOne({
+    email,
+    emailVerificationOTP: hashedOTP,
+    emailVerificationOTPExpiry: { $gt: new Date() }
+  });
+
+  if (!user) {
+    return next(createError('Invalid or expired OTP', 400));
+  }
+
+  // Verify email
+  user.isEmailVerified = true;
+  user.emailVerificationOTP = undefined;
+  user.emailVerificationOTPExpiry = undefined;
+  await user.save();
+
+  // Send welcome email
+  try {
+    await sendWelcomeEmail(user.email, user.name);
+  } catch (emailError) {
+    console.error('Failed to send welcome email:', emailError);
+  }
+
+  // Log activity
+  await Activity.create({
+    type: ActivityType.USER_REGISTERED,
+    message: `User verified email: ${email}`,
+    userId: user._id.toString()
+  });
+
+  res.json({
+    success: true,
+    message: 'Email verified successfully. You can now log in.',
+    data: {
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        isEmailVerified: user.isEmailVerified
+      }
+    }
+  });
+});
+
 // Resend verification email
 export const resendVerificationEmail = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email } = req.body;
@@ -234,16 +293,16 @@ export const resendVerificationEmail = asyncHandler(async (req: Request, res: Re
     return next(createError('Email is already verified', 400));
   }
 
-  // Generate new verification token
-  const verificationToken = user.generateEmailVerificationToken();
+  // Generate new verification OTP
+  const verificationOTP = user.generateEmailVerificationOTP();
   await user.save();
 
-  // Send verification email
-  await sendVerificationEmail(email, verificationToken);
+  // Send verification OTP email
+  await sendVerificationOTP(email, verificationOTP);
 
   res.json({
     success: true,
-    message: 'Verification email sent successfully',
+    message: 'Verification code sent successfully to your email',
     data: {}
   });
 });

@@ -3,6 +3,7 @@ import {
   register,
   login,
   verifyEmail,
+  verifyEmailOTP,
   resendVerificationEmail,
   requestPasswordReset,
   resetPasswordWithOTP,
@@ -23,6 +24,7 @@ const router = Router();
 router.post('/register', authLimiter, validateRegister, register);
 router.post('/login', authLimiter, validateLogin, login);
 router.get('/verify-email', verifyEmail);
+router.post('/verify-email-otp', authLimiter, verifyEmailOTP);
 router.post('/resend-verification', authLimiter, resendVerificationEmail);
 router.post('/request-password-reset', passwordResetLimiter, requestPasswordReset);
 router.post('/reset-password-otp', passwordResetLimiter, validatePasswordReset, resetPasswordWithOTP);

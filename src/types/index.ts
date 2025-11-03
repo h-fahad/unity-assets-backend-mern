@@ -32,6 +32,8 @@ export interface IUser extends Document {
   isEmailVerified: boolean;
   emailVerificationToken?: string;
   emailVerificationExpiry?: Date;
+  emailVerificationOTP?: string;
+  emailVerificationOTPExpiry?: Date;
   resetPasswordToken?: string;
   resetPasswordExpiry?: Date;
   resetPasswordOTP?: string;
@@ -57,6 +59,7 @@ export interface IUser extends Document {
   // Instance methods
   comparePassword(candidatePassword: string): Promise<boolean>;
   generateEmailVerificationToken(): string;
+  generateEmailVerificationOTP(): string;
   generatePasswordResetToken(): string;
   generatePasswordResetOTP(): string;
   incrementLoginAttempts(): Promise<any>;

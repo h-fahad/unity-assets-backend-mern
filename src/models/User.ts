@@ -44,6 +44,14 @@ const userSchema = new Schema<IUser>({
     type: Date,
     default: null
   },
+  emailVerificationOTP: {
+    type: String,
+    default: null
+  },
+  emailVerificationOTPExpiry: {
+    type: Date,
+    default: null
+  },
   resetPasswordToken: {
     type: String,
     default: null
@@ -148,6 +156,13 @@ userSchema.methods.generateEmailVerificationToken = function(): string {
   this.emailVerificationToken = crypto.createHash('sha256').update(token).digest('hex');
   this.emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
   return token;
+};
+
+userSchema.methods.generateEmailVerificationOTP = function(): string {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
+  this.emailVerificationOTP = crypto.createHash('sha256').update(otp).digest('hex');
+  this.emailVerificationOTPExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+  return otp;
 };
 
 userSchema.methods.generatePasswordResetToken = function(): string {

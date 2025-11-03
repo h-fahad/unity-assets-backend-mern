@@ -20,8 +20,8 @@ const createTransporter = () => {
       host: 'smtp.ethereal.email',
       port: 587,
       auth: {
-        user: 'ethereal.user@ethereal.email',
-        pass: 'ethereal.pass'
+        user: 'jevon.ledner@ethereal.email',
+        pass: 'KCqQ5SEPdDSXuFY1Xe'
       }
     });
   }
@@ -60,14 +60,14 @@ export const sendEmail = async (options: EmailOptions): Promise<void> => {
 
 export const sendVerificationEmail = async (email: string, token: string): Promise<void> => {
   const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${token}&email=${encodeURIComponent(email)}`;
-  
+
   const html = `
     <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
       <h2 style="color: #4F46E5;">Verify Your Email Address</h2>
       <p>Thank you for registering with Unity Assets Marketplace!</p>
       <p>Please click the button below to verify your email address:</p>
       <div style="text-align: center; margin: 30px 0;">
-        <a href="${verificationUrl}" 
+        <a href="${verificationUrl}"
            style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
           Verify Email Address
         </a>
@@ -87,7 +87,63 @@ export const sendVerificationEmail = async (email: string, token: string): Promi
   });
 };
 
+export const sendVerificationOTP = async (email: string, otp: string): Promise<void> => {
+  // In development, log OTP to console for easy testing
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n🔐 ============================================');
+    console.log('📧 EMAIL VERIFICATION OTP');
+    console.log('============================================');
+    console.log(`👤 Email: ${email}`);
+    console.log(`🔢 OTP Code: ${otp}`);
+    console.log('⏰ Expires in: 15 minutes');
+    console.log('============================================\n');
+  }
+
+  const html = `
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
+      <h2 style="color: #4F46E5;">Verify Your Email Address</h2>
+      <p>Thank you for registering with Unity Assets Marketplace!</p>
+      <p>Your verification code is:</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <div style="background-color: #EEF2FF; padding: 20px; border-radius: 8px; font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #4F46E5;">
+          ${otp}
+        </div>
+      </div>
+      <p>Enter this code on the verification page to complete your registration.</p>
+      <p style="margin-top: 30px; color: #6B7280; font-size: 14px;">
+        This code will expire in 15 minutes. If you didn't create an account, please ignore this email.
+      </p>
+    </div>
+  `;
+
+  try {
+    await sendEmail({
+      to: email,
+      subject: 'Email Verification Code - Unity Assets',
+      html
+    });
+  } catch (error) {
+    // In development, don't fail if email sending fails - OTP is logged to console
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️  Email sending failed, but OTP was logged to console above');
+    } else {
+      throw error;
+    }
+  }
+};
+
 export const sendPasswordResetEmail = async (email: string, otp: string): Promise<void> => {
+  // In development, log OTP to console for easy testing
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n🔐 ============================================');
+    console.log('🔑 PASSWORD RESET OTP');
+    console.log('============================================');
+    console.log(`👤 Email: ${email}`);
+    console.log(`🔢 OTP Code: ${otp}`);
+    console.log('⏰ Expires in: 10 minutes');
+    console.log('============================================\n');
+  }
+
   const html = `
     <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
       <h2 style="color: #DC2626;">Password Reset Request</h2>
@@ -105,11 +161,20 @@ export const sendPasswordResetEmail = async (email: string, otp: string): Promis
     </div>
   `;
 
-  await sendEmail({
-    to: email,
-    subject: 'Password Reset Code - Unity Assets',
-    html
-  });
+  try {
+    await sendEmail({
+      to: email,
+      subject: 'Password Reset Code - Unity Assets',
+      html
+    });
+  } catch (error) {
+    // In development, don't fail if email sending fails - OTP is logged to console
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('⚠️  Email sending failed, but OTP was logged to console above');
+    } else {
+      throw error;
+    }
+  }
 };
 
 export const sendWelcomeEmail = async (email: string, name?: string): Promise<void> => {
