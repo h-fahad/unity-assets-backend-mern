@@ -254,6 +254,11 @@ router.post('/webhook', async (req, res) => {
     case 'customer.subscription.created':
       const createdSubscription = event.data.object;
       console.log('🎉 Subscription created:', createdSubscription.id);
+      console.log('📅 Stripe dates:');
+      console.log('   start_date:', createdSubscription.start_date, '→', new Date(createdSubscription.start_date * 1000));
+      console.log('   current_period_start:', createdSubscription.current_period_start, '→', new Date(createdSubscription.current_period_start * 1000));
+      console.log('   current_period_end:', createdSubscription.current_period_end, '→', new Date(createdSubscription.current_period_end * 1000));
+      console.log('   status:', createdSubscription.status);
 
       try {
         const { User } = require('../models/index');
@@ -280,6 +285,14 @@ router.post('/webhook', async (req, res) => {
           { isActive: false }
         );
 
+        // Get period dates from subscription items (Stripe stores them there)
+        const periodStart = createdSubscription.items?.data[0]?.current_period_start || createdSubscription.start_date;
+        const periodEnd = createdSubscription.items?.data[0]?.current_period_end || createdSubscription.start_date;
+
+        console.log('📅 Using dates for subscription record:');
+        console.log('   Period Start:', new Date(periodStart * 1000));
+        console.log('   Period End:', new Date(periodEnd * 1000));
+
         // Create new subscription record
         const newSubscription = await UserSubscription.create({
           userId: user._id,
@@ -287,11 +300,11 @@ router.post('/webhook', async (req, res) => {
           stripeSubscriptionId: createdSubscription.id,
           stripeCustomerId: createdSubscription.customer,
           stripeStatus: createdSubscription.status,
-          currentPeriodStart: new Date(createdSubscription.current_period_start * 1000),
-          currentPeriodEnd: new Date(createdSubscription.current_period_end * 1000),
+          currentPeriodStart: new Date(periodStart * 1000),
+          currentPeriodEnd: new Date(periodEnd * 1000),
           cancelAtPeriodEnd: createdSubscription.cancel_at_period_end,
           startDate: new Date(createdSubscription.start_date * 1000),
-          endDate: new Date(createdSubscription.current_period_end * 1000),
+          endDate: new Date(periodEnd * 1000),
           isActive: createdSubscription.status === 'active' || createdSubscription.status === 'trialing'
         });
 

@@ -18,6 +18,11 @@ function extractUserIdFromToken(authHeader) {
     // In production, you should verify the JWT signature
     const base64Payload = token.split('.')[1];
     const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString());
+
+    // DEBUG: Log the entire payload to see what fields are available
+    console.log('🔍 JWT Payload:', JSON.stringify(payload, null, 2));
+    console.log('🔍 Extracted userId:', payload.userId || payload.id || payload.sub);
+
     return payload.userId || payload.id || payload.sub;
   } catch (error) {
     console.error('Error decoding JWT token:', error);
@@ -178,6 +183,8 @@ router.get('/status', async (req, res) => {
       });
     }
 
+    console.log('👤 User found:', user.email, 'ID:', user._id.toString());
+
     // Get user's active subscription
     const activeSubscription = await UserSubscription.findOne({
       userId: user._id,
@@ -189,10 +196,19 @@ router.get('/status', async (req, res) => {
       ]
     });
 
+    console.log('🔍 Subscription query result:', activeSubscription ? 'FOUND ✅' : 'NOT FOUND ❌');
+    if (activeSubscription) {
+      console.log('   Subscription ID:', activeSubscription._id);
+      console.log('   Plan ID:', activeSubscription.planId);
+      console.log('   Is Active:', activeSubscription.isActive);
+      console.log('   Stripe Status:', activeSubscription.stripeStatus);
+    }
+
     // Manually populate the plan since strict populate doesn't work
     if (activeSubscription && activeSubscription.planId) {
       const plan = await SubscriptionPackage.findById(activeSubscription.planId);
       activeSubscription.planId = plan;
+      console.log('📦 Plan populated:', plan ? plan.name : 'NOT FOUND');
     }
 
     // Check if user is admin
